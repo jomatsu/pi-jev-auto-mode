@@ -21,7 +21,7 @@ interface UiHarness {
   readonly selections: string[];
 }
 
-function createUi(options: { answer?: string } = {}): UiHarness {
+function createUi(options: { answer?: string; input?: string } = {}): UiHarness {
   const notifications: Array<{ message: string; type?: string }> = [];
   const selections: string[] = [];
   const ui: GateUi = {
@@ -33,6 +33,7 @@ function createUi(options: { answer?: string } = {}): UiHarness {
       return options.answer;
     },
     confirm: async () => true,
+    input: async () => options.input,
     editor: async () => undefined,
     setStatus: () => {},
   };
@@ -196,6 +197,32 @@ describe("semantic verdicts", () => {
     assert.match(result?.reason ?? "", /timeout/);
     assert.equal(records[0]?.source, "unavailable");
     assert.deepEqual(ui.selections, [], "an unavailable decision must not fall back to a confirmation prompt");
+  });
+
+  it("fails closed when the request is cancelled while the engine is deciding", async () => {
+    // The real race: Esc arrives mid-judgment. A verdict that arrives after the
+    // cancellation must not be treated as an approval.
+    const controller = new AbortController();
+    const engine: DecisionEngine = {
+      id: "slow",
+      judge: async () => {
+        controller.abort();
+        return { verdict: "allow", rationale: "looks fine" };
+      },
+    };
+    const { deps, records } = createDeps({ engine });
+
+    const result = await evaluateToolCall(
+      bash("git clean -fd"),
+      createContext({ signal: controller.signal }),
+      stateWith(),
+      deps,
+    );
+
+    assert.equal(result?.block, true);
+    assert.equal(records[0]?.status, "blocked");
+    assert.equal(records[0]?.source, "unavailable");
+    assert.match(records[0]?.rationale ?? "", /cancelled/);
   });
 
   it("fails closed when the engine throws", async () => {

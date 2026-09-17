@@ -24,6 +24,8 @@ type Handler = (event: unknown, ctx: unknown) => Promise<unknown>;
 
 interface FakePi {
   readonly api: ExtensionAPI;
+  /** What the next `ctx.ui.input` returns. */
+  enteredKey: string | undefined;
   readonly flags: Map<string, unknown>;
   readonly commands: Map<string, { handler: (args: string, ctx: unknown) => Promise<void> }>;
   readonly handlers: Map<string, Handler[]>;
@@ -61,6 +63,7 @@ function createFakePi(): FakePi {
 
   return {
     api: fake as unknown as ExtensionAPI,
+    enteredKey: undefined,
     flags,
     commands,
     handlers,
@@ -77,6 +80,7 @@ function createUiSink(harness: FakePi): GateUi {
     },
     select: async () => undefined,
     confirm: async () => true,
+    input: async () => harness.enteredKey,
     editor: async () => undefined,
     setStatus: (_key, value) => {
       harness.statuses.push(value ?? "<cleared>");
@@ -95,14 +99,27 @@ function createContext(harness: FakePi, cwd: string) {
   };
 }
 
-async function setup() {
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+}
+
+async function setup(options: { fetch?: (input: string, init?: RequestInit) => Promise<Response> } = {}) {
   const dir = await tempDir();
   const cwd = join(dir, "project");
   const store = new JevAutoModeStore({ agentDir: join(dir, "agent"), configDirName: ".pi" });
   const harness = createFakePi();
   // An explicit empty environment keeps the engine choice deterministic: without
-  // a key the gate runs the ask-only engine.
-  register(harness.api, { store, now: () => 1, env: {} });
+  // a key the gate runs the ask-only engine. Any unexpected HTTP call is loud.
+  register(harness.api, {
+    store,
+    now: () => 1,
+    env: {},
+    fetch:
+      options.fetch ??
+      (async () => {
+        throw new Error("unexpected fetch");
+      }),
+  });
   return { cwd, store, harness };
 }
 
@@ -171,7 +188,7 @@ describe("command wiring", () => {
     await command.handler("status", createContext(harness, cwd));
     const message = harness.notifications.at(-1)?.message ?? "";
     assert.match(message, /ask-only/);
-    assert.match(message, /semantic layer: unavailable \(TYPESAFE_API_KEY is not set\)/);
+    assert.match(message, /semantic layer: unavailable \(no TypeSafe API key is available \(run \/jev-auto-mode login/);
     assert.match(message, new RegExp(`max state characters: ${DEFAULT_SETTINGS.maxStateCharacters}`));
   });
 
@@ -214,6 +231,74 @@ describe("command wiring", () => {
     assert.match(harness.notifications.at(-1)?.message ?? "", /Unknown rule/);
 
     assert.deepEqual((await store.loadSettings(cwd, true)).settings.thresholds, {});
+  });
+
+  it("stores a verified API key, switches the engine, and removes it on logout", async () => {
+    // The SDK validates the shape: an authenticated models response is { models: [...] }.
+    const { cwd, store, harness } = await setup({
+      fetch: async () => jsonResponse({ models: [{ name: "jev-latest" }] }),
+    });
+    const command = harness.commands.get(AUTO_MODE_COMMAND);
+    assert.ok(command);
+
+    await harness.handlers.get("session_start")?.[0]?.({}, createContext(harness, cwd));
+    assert.equal(harness.statuses.at(-1), "🛡 jev ask-only (global)");
+
+    harness.enteredKey = "apikey_verified";
+    await command.handler("login", createContext(harness, cwd));
+    assert.equal(await store.readStoredApiKey(), "apikey_verified");
+    assert.equal(harness.statuses.at(-1), "🛡 jev (global)", "the engine is rebuilt without a reload");
+    assert.match(harness.notifications.at(-1)?.message ?? "", /verified and stored/);
+
+    await command.handler("logout", createContext(harness, cwd));
+    assert.equal(await store.readStoredApiKey(), undefined);
+    assert.equal(harness.statuses.at(-1), "🛡 jev ask-only (global)");
+  });
+
+  it("refuses a key the API rejects and stores nothing", async () => {
+    const { cwd, store, harness } = await setup({ fetch: async () => jsonResponse({ error: "nope" }, 401) });
+    const command = harness.commands.get(AUTO_MODE_COMMAND);
+    assert.ok(command);
+
+    harness.enteredKey = "apikey_wrong";
+    await command.handler("login", createContext(harness, cwd));
+
+    assert.equal(await store.readStoredApiKey(), undefined);
+    assert.equal(harness.notifications.at(-1)?.type, "error");
+    assert.match(harness.notifications.at(-1)?.message ?? "", /rejected that key/);
+  });
+
+  it("stores nothing when the key cannot be verified", async () => {
+    const { cwd, store, harness } = await setup({ fetch: async () => { throw new TypeError("offline"); } });
+    const command = harness.commands.get(AUTO_MODE_COMMAND);
+    assert.ok(command);
+
+    harness.enteredKey = "apikey_unverified";
+    await command.handler("login", createContext(harness, cwd));
+
+    assert.equal(await store.readStoredApiKey(), undefined);
+    assert.match(harness.notifications.at(-1)?.message ?? "", /Could not reach the TypeSafe API/);
+  });
+
+  it("does nothing when the login prompt is dismissed", async () => {
+    const { cwd, store, harness } = await setup();
+    const command = harness.commands.get(AUTO_MODE_COMMAND);
+    assert.ok(command);
+
+    harness.enteredKey = undefined;
+    await command.handler("login", createContext(harness, cwd));
+
+    assert.equal(await store.readStoredApiKey(), undefined);
+    assert.match(harness.notifications.at(-1)?.message ?? "", /cancelled/);
+  });
+
+  it("reports when there is no stored key to remove", async () => {
+    const { cwd, harness } = await setup();
+    const command = harness.commands.get(AUTO_MODE_COMMAND);
+    assert.ok(command);
+
+    await command.handler("logout", createContext(harness, cwd));
+    assert.match(harness.notifications.at(-1)?.message ?? "", /No stored API key/);
   });
 
   it("resets one override and all overrides", async () => {

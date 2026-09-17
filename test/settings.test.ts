@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
@@ -121,5 +121,50 @@ describe("JevAutoModeStore", () => {
 
     await store.savePolicyNotes("x".repeat(20_000));
     assert.equal((await store.loadPolicyNotes()).length, 8000);
+  });
+});
+
+describe("stored API key", () => {
+  it("keeps the secret out of the settings file and owner-readable only", async () => {
+    const dir = await tempDir();
+    const agentDir = join(dir, "agent");
+    const store = new JevAutoModeStore({ agentDir, configDirName: ".pi" });
+
+    await store.saveSettings({ ...DEFAULT_SETTINGS, enabled: true }, "global", join(dir, "project"));
+    await store.writeStoredApiKey("apikey_secret");
+
+    const settings = await readFile(store.globalSettingsPath(), "utf8");
+    assert.equal(settings.includes("apikey_secret"), false, "the settings file must not carry the key");
+
+    const mode = (await stat(store.credentialPath())).mode & 0o777;
+    assert.equal(mode, 0o600);
+    const directoryMode = (await stat(join(agentDir, "secrets"))).mode & 0o777;
+    assert.equal(directoryMode, 0o700);
+  });
+
+  it("tightens permissions on an existing file", async () => {
+    const dir = await tempDir();
+    const store = new JevAutoModeStore({ agentDir: join(dir, "agent"), configDirName: ".pi" });
+
+    await store.writeStoredApiKey("first");
+    await chmod(store.credentialPath(), 0o644);
+    await store.writeStoredApiKey("second");
+
+    assert.equal((await stat(store.credentialPath())).mode & 0o777, 0o600);
+    assert.equal(await store.readStoredApiKey(), "second");
+  });
+
+  it("reads nothing when absent or empty, and deletes what it wrote", async () => {
+    const dir = await tempDir();
+    const store = new JevAutoModeStore({ agentDir: join(dir, "agent"), configDirName: ".pi" });
+
+    assert.equal(await store.readStoredApiKey(), undefined);
+    await store.writeStoredApiKey("   ");
+    assert.equal(await store.readStoredApiKey(), undefined);
+
+    await store.writeStoredApiKey("apikey_x");
+    await store.deleteStoredApiKey();
+    assert.equal(await store.readStoredApiKey(), undefined);
+    await store.deleteStoredApiKey(); // idempotent
   });
 });

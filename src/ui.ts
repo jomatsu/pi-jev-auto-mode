@@ -49,6 +49,7 @@ export const USAGE_TEXT = [
   "Usage:",
   "  /jev-auto-mode                     show status",
   "  /jev-auto-mode on|off              toggle auto mode",
+  "  /jev-auto-mode login|logout        store or remove the TypeSafe API key",
   "  /jev-auto-mode policy              list the user policy notes",
   "  /jev-auto-mode policy edit",
   "  /jev-auto-mode policy clear",

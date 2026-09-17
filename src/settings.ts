@@ -1,13 +1,17 @@
 /**
- * Settings and user policy notes.
+ * Settings, policy notes, and the stored API key.
  *
  * Global settings live next to the rest of the Pi agent state
  * (`$PI_CODING_AGENT_DIR` or `~/.pi/agent`). A project can override them from
  * `<cwd>/<CONFIG_DIR_NAME>/jev-auto-mode.json`, but only for a trusted project:
  * an untrusted checkout must not be able to loosen the gate that is judging it.
+ *
+ * The API key is not a setting. It goes to `<agentDir>/secrets/` as a `0600` file,
+ * which is where Pi keeps its own credentials, so that it is neither committed with
+ * a project nor readable by other users on the machine.
  */
 
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 export interface JevAutoModeSettings {
@@ -50,6 +54,10 @@ const MAX_PATTERN_LENGTH = 300;
 const MAX_THRESHOLD_ENTRIES = 32;
 const MAX_RULE_ID_LENGTH = 64;
 const MAX_POLICY_NOTES_LENGTH = 8000;
+const CREDENTIAL_FILE_NAME = "jev-auto-mode-typesafe-api-key";
+/** Mirrors Pi's own secret directory/file modes. */
+const SECRET_DIRECTORY_MODE = 0o700;
+const SECRET_FILE_MODE = 0o600;
 const MIN_TIMEOUT_MS = 250;
 const MAX_TIMEOUT_MS = 60_000;
 const MAX_RETRIES = 5;
@@ -224,5 +232,38 @@ export class JevAutoModeStore {
 
   async savePolicyNotes(notes: string): Promise<void> {
     await writeFileAtomic(this.policyNotesPath(), notes.slice(0, MAX_POLICY_NOTES_LENGTH));
+  }
+
+  credentialPath(): string {
+    return join(this.agentDir, "secrets", CREDENTIAL_FILE_NAME);
+  }
+
+  async readStoredApiKey(): Promise<string | undefined> {
+    try {
+      const value = (await readFile(this.credentialPath(), "utf8")).trim();
+      return value.length > 0 ? value : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Store the API key with owner-only permissions.
+   *
+   * `mode` on `writeFile` only applies when the file is created, so the mode is set
+   * again afterwards: an existing file with looser permissions is tightened rather
+   * than trusted.
+   */
+  async writeStoredApiKey(apiKey: string): Promise<void> {
+    const path = this.credentialPath();
+    const directory = dirname(path);
+    await mkdir(directory, { recursive: true, mode: SECRET_DIRECTORY_MODE });
+    await chmod(directory, SECRET_DIRECTORY_MODE).catch(() => undefined);
+    await writeFile(path, `${apiKey.trim()}\n`, { encoding: "utf8", mode: SECRET_FILE_MODE });
+    await chmod(path, SECRET_FILE_MODE).catch(() => undefined);
+  }
+
+  async deleteStoredApiKey(): Promise<void> {
+    await rm(this.credentialPath(), { force: true });
   }
 }

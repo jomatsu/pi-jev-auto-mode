@@ -28,8 +28,11 @@ import {
   createJevEngine,
   createSdkTransport,
   describeJevAvailability,
+  describeKeySource,
   formatThreshold,
   ruleById,
+  verifyApiKey,
+  type JevAvailability,
   type Observation,
   type ObservationMeta,
 } from "./jev/index.ts";
@@ -67,6 +70,7 @@ export interface GateUi {
   notify(message: string, type?: "info" | "warning" | "error"): void;
   select(title: string, options: string[]): Promise<string | undefined>;
   confirm(title: string, message: string): Promise<boolean>;
+  input(title: string, placeholder?: string): Promise<string | undefined>;
   editor(title: string, prefill?: string): Promise<string | undefined>;
   setStatus(key: string, text: string | undefined): void;
 }
@@ -362,13 +366,17 @@ export interface RegisterOptions {
 /**
  * Build the semantic engine for the current settings.
  *
- * Without an API key the gate keeps working with the ask-only engine rather than
+ * Without a key the gate keeps working with the ask-only engine rather than
  * dropping to "allow": the degradation stays visible and stays closed.
  */
-export function createEngine(settings: JevAutoModeSettings, options: RegisterOptions = {}): DecisionEngine {
+export function createEngine(
+  settings: JevAutoModeSettings,
+  options: RegisterOptions = {},
+  storedApiKey?: string,
+): DecisionEngine {
   if (options.engine) return options.engine;
 
-  const availability = describeJevAvailability(options.env ?? process.env);
+  const availability = describeJevAvailability(options.env ?? process.env, storedApiKey);
   if (!availability.available || !availability.apiKey) return createManualEngine();
 
   return createJevEngine({
@@ -410,7 +418,15 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
     record: options.record ?? createRecorder(pi),
     now,
   };
+  let availability: JevAvailability = describeJevAvailability(options.env ?? process.env);
   let loaded = false;
+
+  /** Rebuild the engine from the settings and the currently resolvable key. */
+  const rebuildEngine = async (): Promise<void> => {
+    const storedApiKey = await store.readStoredApiKey();
+    availability = describeJevAvailability(options.env ?? process.env, storedApiKey);
+    deps = { ...deps, engine: createEngine(state.settings, engineOptions, storedApiKey) };
+  };
 
   const refresh = async (ctx: GateContext, applyFlag: boolean): Promise<void> => {
     const trusted = ctx.isProjectTrusted?.() ?? false;
@@ -421,7 +437,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
     if (applyFlag && pi.getFlag(AUTO_MODE_FLAG) === true) {
       state.settings = { ...state.settings, enabled: true };
     }
-    deps = { ...deps, engine: createEngine(state.settings, engineOptions) };
+    await rebuildEngine();
     loaded = true;
     updateStatus(ctx, { enabled: state.settings.enabled, engineId: deps.engine.id, scope: state.scope });
   };
@@ -444,7 +460,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
       const value = String(argumentPrefix ?? "");
       const tokens = value.split(/\s+/).filter(Boolean);
       if (tokens.length === 0) {
-        return ["status", "on", "off", "policy", "threshold"].map((item) => ({ value: item, label: item }));
+        return ["status", "on", "off", "policy", "threshold", "login", "logout"].map((item) => ({ value: item, label: item }));
       }
       if (tokens[0] === "threshold") {
         if (tokens.length <= 1) {
@@ -468,7 +484,6 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
       if (!loaded) await refresh(gateContext, true);
 
       const value = String(args ?? "").trim();
-      const availability = describeJevAvailability(options.env ?? process.env);
       const status = [
         statusText({
           enabled: state.settings.enabled,
@@ -478,7 +493,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
         "",
         describeSettings(state.settings, state.scope),
         availability.available
-          ? `semantic layer: ${availability.model}`
+          ? `semantic layer: ${availability.model} (key from ${describeKeySource(availability.source)})`
           : `semantic layer: unavailable (${availability.reason ?? "unknown reason"})`,
       ].join("\n");
 
@@ -525,6 +540,74 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
         return;
       }
 
+      if (value === "login") {
+        const entered = await ctx.ui.input("TypeSafe API key", "apikey_...");
+        const apiKey = entered?.trim();
+        if (!apiKey) {
+          ctx.ui.notify("Login cancelled: no key entered.", "info");
+          return;
+        }
+
+        const verification = await verifyApiKey({
+          apiKey,
+          ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+        });
+        if (!verification.ok && verification.reason === "invalid") {
+          ctx.ui.notify("The API rejected that key, so nothing was saved. Check the key and try again.", "error");
+          return;
+        }
+        if (!verification.ok) {
+          ctx.ui.notify(
+            "Could not reach the TypeSafe API to verify the key, so nothing was saved. Check the connection and try again.",
+            "error",
+          );
+          return;
+        }
+
+        await store.writeStoredApiKey(apiKey);
+        await rebuildEngine();
+        updateStatus(gateContext, {
+          enabled: state.settings.enabled,
+          engineId: deps.engine.id,
+          scope: state.scope,
+        });
+        ctx.ui.notify(
+          `API key verified and stored at ${store.credentialPath()} (mode 600).\n\nSemantic layer: ${availability.model} (key from ${describeKeySource(availability.source)})`,
+          "info",
+        );
+        return;
+      }
+
+      if (value === "logout") {
+        const storedApiKey = await store.readStoredApiKey();
+        if (!storedApiKey) {
+          ctx.ui.notify("No stored API key to remove.", "info");
+          return;
+        }
+        const confirmed = await ctx.ui.confirm(
+          "Remove the stored TypeSafe API key?",
+          availability.source === "env"
+            ? "It is not in use anyway: TYPESAFE_API_KEY takes precedence."
+            : "The semantic layer will fall back to ask-only until a key is available again.",
+        );
+        if (!confirmed) return;
+
+        await store.deleteStoredApiKey();
+        await rebuildEngine();
+        updateStatus(gateContext, {
+          enabled: state.settings.enabled,
+          engineId: deps.engine.id,
+          scope: state.scope,
+        });
+        ctx.ui.notify(
+          availability.available
+            ? `Stored key removed. Still using ${describeKeySource(availability.source)}.`
+            : "Stored key removed. The semantic layer is now ask-only.",
+          "info",
+        );
+        return;
+      }
+
       if (value === "threshold" || value === "threshold list") {
         ctx.ui.notify(formatRuleTable(DEFAULT_RULES, state.settings.thresholds, observed), "info");
         return;
@@ -549,7 +632,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
           }
           state.settings = { ...state.settings, thresholds };
           await save(gateContext);
-          deps = { ...deps, engine: createEngine(state.settings, engineOptions) };
+          await rebuildEngine();
           ctx.ui.notify(
             `Threshold overrides cleared${target && target !== "reset" ? ` for \`${target}\`` : ""}.\n\n${formatRuleTable(DEFAULT_RULES, state.settings.thresholds, observed)}`,
             "info",
@@ -579,7 +662,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
           thresholds: { ...state.settings.thresholds, [ruleId]: threshold },
         };
         await save(gateContext);
-        deps = { ...deps, engine: createEngine(state.settings, engineOptions) };
+        await rebuildEngine();
         ctx.ui.notify(
           `\`${ruleId}\` now requires p >= ${formatThreshold(threshold)} (rejecting at p <= ${formatThreshold(1 - threshold)}).\n\n${formatRuleTable(DEFAULT_RULES, state.settings.thresholds, observed)}`,
           "info",

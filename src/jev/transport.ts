@@ -45,6 +45,47 @@ function toFailure(error: unknown): JevTransportResult {
   return { ok: false, reason: "unknown" };
 }
 
+/** The result of checking an API key against the API before storing it. */
+export type ApiKeyVerification =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly reason: "invalid" | "unreachable" };
+
+/**
+ * Verify an API key by listing the models the account can use.
+ *
+ * Storing an unverified key would turn a typo into a gate that silently blocks every
+ * escalated call, so the check happens before the key is written. A key is only
+ * stored when the API accepted it; a network failure is reported as "try again",
+ * never as "saved".
+ */
+export async function verifyApiKey(options: {
+  readonly apiKey: string;
+  readonly baseURL?: string;
+  readonly fetch?: (input: string, init?: RequestInit) => Promise<Response>;
+  readonly timeoutMs?: number;
+}): Promise<ApiKeyVerification> {
+  const client = new TypeSafeClient({
+    apiKey: options.apiKey,
+    ...(options.baseURL === undefined ? {} : { baseURL: options.baseURL }),
+    ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+    timeout: options.timeoutMs ?? 10_000,
+    retry: { maxRetries: 0 },
+  });
+
+  try {
+    await client.models.list();
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof APIError) {
+      // 401 / 403 mean the key itself was refused; anything else is the API failing
+      // to answer, which says nothing about the key.
+      const status = error.status;
+      return { ok: false, reason: status === 401 || status === 403 ? "invalid" : "unreachable" };
+    }
+    return { ok: false, reason: "unreachable" };
+  }
+}
+
 export function createSdkTransport(options: SdkTransportOptions = {}): JevTransport {
   const client = new TypeSafeClient({
     ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),

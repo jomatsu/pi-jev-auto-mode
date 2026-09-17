@@ -68,8 +68,10 @@ pi -e /absolute/path/to/pi-jev-auto-mode
 ## Usage
 
 ```
-/jev-auto-mode            show status (settings + whether the semantic layer is usable)
+/jev-auto-mode            show status (settings + where the API key comes from)
 /jev-auto-mode on|off     toggle auto mode
+/jev-auto-mode login      store a TypeSafe API key (verified, then saved 0600)
+/jev-auto-mode logout     remove the stored key
 /jev-auto-mode policy     list the policy notes
 /jev-auto-mode policy edit
 /jev-auto-mode policy clear
@@ -82,16 +84,20 @@ pi -e /absolute/path/to/pi-jev-auto-mode
 pi --jev-auto-mode        start with auto mode enabled
 ```
 
-Requires `TYPESAFE_API_KEY` ([console.typesafe.ai](https://console.typesafe.ai/)). Without it
-the gate does not disable itself: it falls back to the ask-only engine, which confirms in a UI
-and blocks when there is none. `TYPESAFE_DEFAULT_MODEL` selects the model (default
-`jev-latest`).
+The semantic layer needs a TypeSafe API key. `/jev-auto-mode login` asks for it, verifies it
+against the API (`GET /v1/models`), and stores it as an owner-only file at
+`$PI_CODING_AGENT_DIR/secrets/jev-auto-mode-typesafe-api-key` (mode `0600`) — the same place Pi
+keeps its own credentials, so it is never committed with a project. `TYPESAFE_API_KEY` takes
+precedence when set, so a one-off or CI override needs no login. `TYPESAFE_DEFAULT_MODEL`
+selects the model (default `jev-latest`).
 
-The footer shows `🛡 jev (<scope>)` while the semantic layer is active, and
-`🛡 jev ask-only (<scope>)` when it is not. Every decision is recorded in the transcript as an
-expandable entry — expand it to see per-condition probabilities, the resolved model, and
-token usage. Records use `pi.appendEntry`, so they never enter the model's context: the model
-cannot argue with the gate using its own past rationales.
+A key is only stored after the API accepts it: a typo that got saved would turn into a gate
+that silently blocks every escalated call. If the API cannot be reached the key is not stored
+either, and the command says so rather than claiming success.
+
+Without a key the gate does not disable itself: it falls back to the ask-only engine, which
+confirms in a UI and blocks when there is none. The footer shows `🛡 jev (<scope>)` while the
+semantic layer is active and `🛡 jev ask-only (<scope>)` when it is not.
 
 ## Tuning
 
@@ -194,7 +200,7 @@ Layout:
 | `src/jev/engine.ts` | one request per call, budget guard, calibration hook |
 | `src/jev/transport.ts` | the SDK, wrapped so failures become decisions |
 | `src/jev/response.ts` | response re-validation (a 200 is not an answer) |
-| `src/settings.ts` | global/project settings and policy notes |
+| `src/settings.ts` | global/project settings, policy notes, and the stored API key |
 | `src/records.ts` | `appendEntry` records and their renderer |
 | `src/ui.ts` | footer status and user-facing text |
 | `src/extension.ts` | `tool_call` orchestration and command wiring |

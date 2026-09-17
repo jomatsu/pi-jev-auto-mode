@@ -51,6 +51,8 @@ Everything below resolves to **block**. Silence is never consent.
 |---|---|
 | No semantic engine configured (no API key) | confirm in a UI, block without one |
 | API key missing or rejected | block, with the reason surfaced to the model |
+| Login with a key the API refuses | the key is not stored, so a typo cannot become a permanently blocking gate |
+| Login while the API is unreachable | the key is not stored and the command says it could not verify |
 | Timeout / connection error | block (`timeout`, `network`) |
 | 5xx or 429 after retries | block (`http`) |
 | 4xx that retries cannot fix | block (`http`) — not rethrown, so the gate cannot fail open |
@@ -89,6 +91,11 @@ payload is deliberately narrow:
 | matched policy reason names | environment variables |
 | recent user messages (bounded, ≤4k chars) | the API key itself |
 | policy notes | |
+
+The API key is stored as a `0600` file under `<agentDir>/secrets/`, the same place Pi keeps its
+own credentials. It is never written to the settings file, and it is never part of the judgment
+state: it travels only in the `Authorization` header to `api.typesafe.ai`, so it cannot come
+back out through a decision record.
 
 Redaction runs before the state is built: `*_KEY=` / `*_TOKEN=` / `*_SECRET=` assignments,
 `Bearer …`, JWTs, `sk-` / `rk-` keys, `ghp_` / `gho_` tokens, `AKIA…` access key IDs,

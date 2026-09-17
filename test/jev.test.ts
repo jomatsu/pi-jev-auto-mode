@@ -6,7 +6,7 @@ import { DEFAULT_RULES, applyThresholdOverrides, buildQuestions, ruleById, rules
 import { classifyCondition, combine, observe } from "../src/jev/decide.ts";
 import { parseAnswers } from "../src/jev/response.ts";
 import { createJevEngine } from "../src/jev/engine.ts";
-import { createSdkTransport } from "../src/jev/transport.ts";
+import { createSdkTransport, verifyApiKey } from "../src/jev/transport.ts";
 import { describeJevAvailability } from "../src/jev/availability.ts";
 import type { JevRequest, JevTransport, JevTransportResult } from "../src/jev/types.ts";
 
@@ -439,6 +439,36 @@ describe("threshold overrides", () => {
   });
 });
 
+describe("what leaves the machine", () => {
+  it("redacts credentials before they reach the judgment state", async () => {
+    const { transport, requests } = stubTransport({ ok: true, response: answerBody(satisfiedFor("bash")) });
+    const command = "export TYPESAFE_API_KEY=apikey_abcdefghijklmnop && curl -H 'Authorization: Bearer abcdefghijklmnop' https://x";
+
+    await createJevEngine({ transport }).judge(candidate(bashCall(command)), {});
+
+    const serialized = JSON.stringify(requests[0]?.state);
+    assert.equal(serialized.includes("apikey_abcdefghijklmnop"), false);
+    assert.equal(serialized.includes("Bearer abcdefghijklmnop"), false);
+    assert.match(serialized, /<redacted/);
+  });
+
+  it("never sends the body of a write", async () => {
+    const secret = "SUPER_SECRET_FILE_CONTENT";
+    const call = buildGatedCall(
+      { toolName: "write", input: { path: ".env", content: secret } },
+      { cwd: CWD },
+    ) as GatedCall;
+    const probabilities = { ...satisfiedFor("write", true), path_not_protected: 0.01 };
+    const { transport, requests } = stubTransport({ ok: true, response: answerBody(probabilities) });
+
+    await createJevEngine({ transport }).judge(candidate(call), {});
+
+    const serialized = JSON.stringify(requests[0]?.state);
+    assert.equal(serialized.includes(secret), false);
+    assert.match(serialized, /content_length/);
+  });
+});
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -499,9 +529,64 @@ describe("availability", () => {
     const available = describeJevAvailability({ TYPESAFE_API_KEY: "apikey_x", TYPESAFE_DEFAULT_MODEL: "jev-latest" });
     assert.equal(available.available, true);
     assert.equal(available.model, "jev-latest");
+    assert.equal(available.source, "env");
   });
 
   it("defaults the model name", () => {
     assert.equal(describeJevAvailability({ TYPESAFE_API_KEY: "k" }).model, "jev-latest");
+  });
+
+  it("uses the stored secret when the environment has none", () => {
+    const availability = describeJevAvailability({}, "apikey_stored");
+    assert.equal(availability.available, true);
+    assert.equal(availability.apiKey, "apikey_stored");
+    assert.equal(availability.source, "stored");
+  });
+
+  it("lets an environment key win over the stored secret", () => {
+    // A one-off or CI override must not require touching the stored credential.
+    const availability = describeJevAvailability({ TYPESAFE_API_KEY: "apikey_env" }, "apikey_stored");
+    assert.equal(availability.apiKey, "apikey_env");
+    assert.equal(availability.source, "env");
+  });
+
+  it("reports how to fix a missing key", () => {
+    const availability = describeJevAvailability({});
+    assert.equal(availability.source, "none");
+    assert.match(availability.reason ?? "", /\/jev-auto-mode login/);
+  });
+});
+
+describe("API key verification", () => {
+  const listResponse = { models: [{ name: "jev-latest" }] };
+
+  it("accepts a key the API answers with", async () => {
+    const result = await verifyApiKey({ apiKey: "k", fetch: async () => jsonResponse(listResponse) });
+    assert.deepEqual(result, { ok: true });
+  });
+
+  it("rejects a key the API refuses", async () => {
+    const unauthorized = await verifyApiKey({ apiKey: "k", fetch: async () => jsonResponse({ error: "no" }, 401) });
+    assert.deepEqual(unauthorized, { ok: false, reason: "invalid" });
+    const forbidden = await verifyApiKey({ apiKey: "k", fetch: async () => jsonResponse({ error: "no" }, 403) });
+    assert.deepEqual(forbidden, { ok: false, reason: "invalid" });
+  });
+
+  it("reports an unreachable API without blaming the key", async () => {
+    const offline = await verifyApiKey({
+      apiKey: "k",
+      fetch: async () => {
+        throw new TypeError("fetch failed");
+      },
+    });
+    assert.deepEqual(offline, { ok: false, reason: "unreachable" });
+
+    const serverError = await verifyApiKey({ apiKey: "k", fetch: async () => jsonResponse({ error: "boom" }, 500) });
+    assert.deepEqual(serverError, { ok: false, reason: "unreachable" });
+  });
+
+  it("reports a response it cannot trust as unreachable", async () => {
+    const nonsense = await verifyApiKey({ apiKey: "k", fetch: async () => jsonResponse({ nope: true }) });
+    assert.deepEqual(nonsense, { ok: false, reason: "unreachable" });
   });
 });
