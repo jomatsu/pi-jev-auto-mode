@@ -28,6 +28,7 @@ import {
   createJevEngine,
   createSdkTransport,
   describeJevAvailability,
+  formatThreshold,
   ruleById,
   type Observation,
   type ObservationMeta,
@@ -396,16 +397,9 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
   const engineOptions: RegisterOptions = {
     ...options,
     onObservation: (observations, meta) => {
+      const at = now();
       for (const observation of observations) {
-        observed.set(observation.ruleId, {
-          probability: observation.probability,
-          threshold: observation.threshold,
-          verdict:
-            observation.verdict === "uncertain" && observation.effective === "satisfied"
-              ? "ignored"
-              : observation.verdict,
-          at: now(),
-        });
+        observed.set(observation.ruleId, { probability: observation.probability, at });
       }
       options.onObservation?.(observations, meta);
     },
@@ -587,7 +581,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
         await save(gateContext);
         deps = { ...deps, engine: createEngine(state.settings, engineOptions) };
         ctx.ui.notify(
-          `\`${ruleId}\` now requires p >= ${threshold.toFixed(2)} (rejecting at p <= ${(1 - threshold).toFixed(2)}).\n\n${formatRuleTable(DEFAULT_RULES, state.settings.thresholds, observed)}`,
+          `\`${ruleId}\` now requires p >= ${formatThreshold(threshold)} (rejecting at p <= ${formatThreshold(1 - threshold)}).\n\n${formatRuleTable(DEFAULT_RULES, state.settings.thresholds, observed)}`,
           "info",
         );
         return;

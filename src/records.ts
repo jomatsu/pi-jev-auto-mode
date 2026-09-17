@@ -9,6 +9,7 @@
 import { Box, Text } from "@earendil-works/pi-tui";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ConditionReport, DecisionSource } from "./decide.ts";
+import { formatThreshold } from "./jev/decide.ts";
 
 export const DECISION_ENTRY_TYPE = "jev-auto-mode-decision";
 
@@ -72,15 +73,15 @@ export function formatConditionLines(record: DecisionRecord): string[] {
   return (record.conditions ?? []).map((condition) => {
     const bounds =
       condition.verdict === "satisfied"
-        ? `>= ${condition.threshold.toFixed(2)}`
+        ? `>= ${formatThreshold(condition.threshold)}`
         : condition.verdict === "rejected"
-          ? `<= ${(1 - condition.threshold).toFixed(2)}`
-          : `${(1 - condition.threshold).toFixed(2)}-${condition.threshold.toFixed(2)}`;
+          ? `<= ${formatThreshold(1 - condition.threshold)}`
+          : `${formatThreshold(1 - condition.threshold)}-${formatThreshold(condition.threshold)}`;
     const marks = [
       record.decidingRule === condition.ruleId ? "<- decided" : "",
       condition.clearedByIntent ? "(cleared by the user's request)" : "",
     ].filter(Boolean);
-    return `${condition.ruleId}  p=${condition.probability.toFixed(2)}  ${VERDICT_MARK[condition.verdict]} (t=${condition.threshold.toFixed(2)}, ${bounds}) ${marks.join(" ")}`.trimEnd();
+    return `${condition.ruleId}  p=${condition.probability.toFixed(2)}  ${VERDICT_MARK[condition.verdict]} (t=${formatThreshold(condition.threshold)}, ${bounds}) ${marks.join(" ")}`.trimEnd();
   });
 }
 

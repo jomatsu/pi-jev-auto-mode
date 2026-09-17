@@ -70,15 +70,35 @@ describe("status text", () => {
 
 describe("threshold table", () => {
   const observed = new Map<string, ObservedCondition>([
-    ["intent_coverage", { probability: 0.97, threshold: 0.8, verdict: "pass", at: 1 }],
-    ["no_secret_egress", { probability: 0.02, threshold: 0.97, verdict: "reject", at: 1 }],
+    ["intent_coverage", { probability: 0.97, at: 1 }],
+    ["no_secret_egress", { probability: 0.02, at: 1 }],
   ]);
 
   it("lists every rule with its mode, severity, and last observed probability", () => {
     const table = formatRuleTable(DEFAULT_RULES, { intent_coverage: 0.6 }, observed);
     assert.match(table, /rule\s+mode\s+severity\s+threshold/);
-    assert.match(table, /intent_coverage\s+required\s+hazard\s+0\.60 override \(default 0\.80\)\s+p=0\.97 \(pass\)/);
-    assert.match(table, /no_secret_egress\s+hazard\s+hazard\s+0\.97 default\s+p=0\.02 \(reject\)/);
+    assert.match(table, /intent_coverage\s+required\s+hazard\s+0\.60 override \(default 0\.80\)\s+p=0\.97 \(satisfied\)/);
+    assert.match(table, /no_secret_egress\s+hazard\s+hazard\s+0\.97 default\s+p=0\.02 \(rejected\)/);
+  });
+
+  it("recomputes the band against the current threshold", () => {
+    // Both observations were recorded under the defaults, where p=0.97 passed.
+    // Raising the thresholds must show what those same answers would now mean.
+    const overrides = { no_secret_egress: 0.99, intent_coverage: 0.99 };
+    const raised = formatRuleTable(DEFAULT_RULES, overrides, observed);
+
+    // A hazard rule in the middle band is ignored rather than escalated, and note
+    // what raising a threshold does to the other side: at t=0.99 the reject band is
+    // p <= 0.01, so the 0.02 answer that used to reject no longer does.
+    assert.match(raised, /no_secret_egress\s+hazard\s+hazard\s+0\.99 override \(default 0\.97\)\s+p=0\.02 \(ignored\)/);
+    // ...while a required rule in the middle band escalates.
+    assert.match(raised, /intent_coverage\s+required\s+hazard\s+0\.99 override \(default 0\.80\)\s+p=0\.97 \(uncertain\)/);
+  });
+
+  it("labels a middle-band answer on a hazard rule as ignored", () => {
+    const middle = new Map<string, ObservedCondition>([["local_scope", { probability: 0.85, at: 1 }]]);
+    const table = formatRuleTable(DEFAULT_RULES, {}, middle);
+    assert.match(table, /local_scope\s+hazard\s+soft\s+0\.90 default\s+p=0\.85 \(ignored\)/);
   });
 
   it("flags an override that matches no known rule", () => {

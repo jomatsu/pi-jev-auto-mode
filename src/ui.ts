@@ -8,6 +8,7 @@
 
 import type { JevAutoModeSettings, SettingsScope } from "./settings.ts";
 import { DEFAULT_RULES, type JevRule } from "./jev/questions.ts";
+import { formatThreshold, observe } from "./jev/decide.ts";
 
 export const STATUS_ID = "jev-auto-mode";
 
@@ -64,11 +65,16 @@ export const POLICY_HEADER = [
   "approval, but they cannot override hard-deny rules.",
 ].join("\n");
 
-/** The most recent judgment of one condition, kept for threshold tuning. */
+/**
+ * The most recent judgment of one condition, kept for threshold tuning.
+ *
+ * Only the probability is stored. The band is recomputed against the *current*
+ * threshold, so changing a threshold immediately shows what the last judgment would
+ * have become — storing the band would leave a stale label next to a threshold that
+ * no longer produced it.
+ */
 export interface ObservedCondition {
   readonly probability: number;
-  readonly threshold: number;
-  readonly verdict: string;
   readonly at: number;
 }
 
@@ -81,7 +87,8 @@ function pad(value: string, width: number): string {
  *
  * Showing the last observed probability next to each threshold is the whole point:
  * a threshold cannot be chosen from a rule description, only from what the model
- * actually answered for calls you care about.
+ * actually answered for calls you care about. The band is recomputed against the
+ * current threshold, so the table doubles as a what-if view while tuning.
  */
 export function formatRuleTable(
   rules: readonly JevRule[] = DEFAULT_RULES,
@@ -92,12 +99,11 @@ export function formatRuleTable(
   const rows = rules.map((rule) => {
     const override = overrides[rule.id];
     const threshold = override ?? rule.threshold;
-    const origin = override === undefined ? "default" : `override (default ${rule.threshold.toFixed(2)})`;
-    const last = observed.get(rule.id);
-    const lastText = last
-      ? `p=${last.probability.toFixed(2)} (${last.verdict})`
-      : "-";
-    return `${pad(rule.id, 24)}${pad(rule.mode, 10)}${pad(rule.severity, 10)}${pad(`${threshold.toFixed(2)} ${origin}`, 30)}${lastText}`;
+    const origin = override === undefined ? "default" : `override (default ${formatThreshold(rule.threshold)})`;
+    // Recompute against the effective rule, not the default one: the point of the
+    // last-observed column is to answer "what would this answer mean now".
+    const effective = override === undefined ? rule : { ...rule, threshold: override };
+    return `${pad(rule.id, 24)}${pad(rule.mode, 10)}${pad(rule.severity, 10)}${pad(`${formatThreshold(threshold)} ${origin}`, 30)}${describeLast(effective, observed.get(rule.id))}`;
   });
 
   const unknown = Object.keys(overrides).filter((ruleId) => !rules.some((rule) => rule.id === ruleId));
@@ -106,4 +112,12 @@ export function formatRuleTable(
   }
 
   return [header, ...rows].join("\n");
+}
+
+function describeLast(rule: JevRule, last: ObservedCondition | undefined): string {
+  if (!last) return "-";
+  const [observation] = observe([rule], { [rule.id]: last.probability });
+  const band = observation?.verdict ?? "uncertain";
+  const label = band === "uncertain" && observation?.effective === "satisfied" ? "ignored" : band;
+  return `p=${last.probability.toFixed(2)} (${label})`;
 }

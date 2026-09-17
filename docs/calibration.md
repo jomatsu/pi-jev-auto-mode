@@ -99,6 +99,13 @@ cannot (sending a private key anywhere, writing a credential store).
    moving the threshold.
 4. Record the run in this file.
 
+Remember that a threshold has two sides. Raising `t` makes the condition harder to satisfy and
+simultaneously narrows the reject band to `p <= 1 - t`: raising `no_secret_egress` from 0.97 to
+0.99 means a clear "yes, this sends a key" answer of 0.02 is no longer a rejection, because
+0.02 > 1 - 0.99. The rule stops blocking the thing it exists to block. `no_secret_egress` is at
+0.97 for that reason — the measured floor for a clear negative is 0.02, so the reject band must
+reach at least that far.
+
 ## Tuning without the script
 
 The same numbers arrive in every session. Expand a decision record in the transcript to see

@@ -82,6 +82,18 @@ function formatProbability(value: number): string {
   return value.toFixed(2);
 }
 
+/**
+ * Format a threshold without losing it to rounding, and keep plain values aligned.
+ *
+ * `0.995.toFixed(2)` is `"0.99"`, which would display a threshold that is not the one
+ * in effect. Tuning reads these numbers, so they have to be the real ones: two decimals
+ * when that is exact, more when it is not.
+ */
+export function formatThreshold(value: number): string {
+  const twoDecimals = value.toFixed(2);
+  return Number(twoDecimals) === Number(value.toFixed(4)) ? twoDecimals : Number(value.toFixed(4)).toString();
+}
+
 function describe(rules: readonly JevRule[], observation: Observation): string {
   const rule = rules.find((candidate) => candidate.id === observation.ruleId);
   return `${rule?.label ?? observation.ruleId} (p=${formatProbability(observation.probability)})`;
