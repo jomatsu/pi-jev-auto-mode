@@ -175,6 +175,24 @@ const DANGEROUS_PATTERNS: readonly CommandPattern[] = [
     name: "downloaded script execution",
     pattern: /\b(?:curl|wget)\b[^\n;&|]*(?:\|\s*(?:sh|bash|zsh)\b|\b(?:sh|bash|zsh)\s*<\s*\()/i,
   },
+
+  // Sending local data out. Missing this class entirely was a real hole: a request
+  // that uploads a file matched nothing and ran with no judgment at all.
+  {
+    name: "network upload of local data",
+    pattern:
+      /\b(?:curl|wget)\b[^\n;&|]*(?:\s-d\s*@|\s--data(?:-binary|-raw|-urlencode)?\s*@|\s-T\s|\s--upload-file\b|\s-F\s[^\s;&|]*=@|\s--form\s[^\s;&|]*=@)/i,
+  },
+  { name: "file transfer to a remote host", pattern: /\b(?:scp|rsync|sftp)\b/i },
+  { name: "raw network connection", pattern: /\b(?:nc|ncat|netcat|telnet)\b/i },
+
+  // Reading credential material into the transcript. Reading has no side effect, but
+  // a private key pasted into a conversation is a leak with a long half-life.
+  {
+    name: "reads a credential file",
+    pattern:
+      /\b(?:cat|bat|less|more|head|tail|xxd|base64|grep|rg)\b[^\n;&|]*(?:\.ssh\/|id_rsa|id_ed25519|id_ecdsa|\.aws\/|\.gnupg|\.npmrc|credentials|\.env\b(?!\.(?:example|sample|template)))/i,
+  },
 ];
 
 /**

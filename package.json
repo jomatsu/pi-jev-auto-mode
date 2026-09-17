@@ -9,9 +9,10 @@
     "auto-mode",
     "permission",
     "gate",
+    "guardrail",
     "jev",
     "typesafe",
-    "guardrail"
+    "semantic-validation"
   ],
   "license": "MIT",
   "author": "jomatsu",

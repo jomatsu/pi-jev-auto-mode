@@ -8,7 +8,7 @@ cannot be made.
 
 > **Status: milestones 1–3 are complete.** The deterministic envelope, the JEV engine,
 > real-API calibration, settings, policy notes, per-rule threshold tuning, and decision
-> records are implemented and tested (153 tests, no network). See [`docs/plan.md`](./docs/plan.md) for
+> records are implemented and tested (157 tests, no network). See [`docs/design.md`](./docs/design.md) for
 > the roadmap and [`docs/calibration.md`](./docs/calibration.md) for the measured
 > probabilities behind every threshold.
 
@@ -54,16 +54,23 @@ malformed response, cancellation — blocks.
 ## Install
 
 ```sh
-pi install /absolute/path/to/pi-jev-auto-mode
-# or, once published:
 pi install npm:pi-jev-auto-mode
+```
+
+Or straight from the repository, which needs no npm account:
+
+```sh
+pi install git:github.com/jomatsu/pi-jev-auto-mode
 ```
 
 Try it without installing:
 
 ```sh
-pi -e /absolute/path/to/pi-jev-auto-mode
+pi -e npm:pi-jev-auto-mode
 ```
+
+Packages are discovered in the [package gallery](https://pi.dev/packages) through the
+`pi-package` keyword.
 
 ## Usage
 

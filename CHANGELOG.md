@@ -14,3 +14,6 @@ Initial release.
 - `/jev-auto-mode` command surface: `on|off`, `login|logout`, `policy`, `threshold`.
 - Decision records via `pi.appendEntry`, kept out of the LLM context, expandable to a
   per-condition tuning sheet.
+- Network uploads of local data and reads of credential material are gated: a `curl -d @file`
+  that matched nothing ran with no judgment before this.
+- `pi install` from npm or git; tagged `pi-package` for the package gallery.
