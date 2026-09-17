@@ -68,6 +68,7 @@ export function createJevEngine(options: JevEngineOptions): DecisionEngine {
         rulesForTool(input.call.tool, rules, {
           hasPolicy,
           hasProtectedTarget: input.call.protectedReason !== undefined,
+          reasons: input.reasons,
         }),
         options.thresholds,
       );

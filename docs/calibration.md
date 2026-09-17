@@ -124,6 +124,26 @@ transcript. The fixture set gained `post a private key, asked for`, which verifi
 the whole design rests on: with the user explicitly asking for it, `no_secret_egress` still
 rejects (p = 0.01) and the call is blocked.
 
+## Third revision: strictness for the wrong reason
+
+With the middle band resolving to a block, the two `required` conditions left in the set turned
+out to be doing the blocking, and not because the calls were risky:
+
+- `intent_coverage` at 0.80 was above the entire "asked" cluster. The measured gap is
+  **0.15 → 0.77**: nothing the model answered landed between those values, so any threshold in
+  that range separates perfectly and 0.80 was simply the strict end of nothing. Now 0.60, with
+  the middle band at (0.40, 0.60).
+- `policy_compliance` answered 0.66–0.85 even for calls that were plainly fine. As a requirement
+  that blocks, so **configuring a policy disabled the gate entirely**. It is a hazard detector
+  now: only a clear violation stops a call.
+- `path_not_protected` had the same shape: the target was escalated *because* the deterministic
+  layer distrusts it, so asking the model to certify it as safe and blocking when it hedges put
+  the burden in the wrong place. The intent question decides; a clear credential-store answer
+  still blocks (`.env` p = 0.02, `~/.ssh` p = 0.03).
+
+The lesson generalises: a threshold should be chosen so that no measured answer sits near it.
+Both mistakes here came from picking the strict end of a band instead of the middle of a gap.
+
 ## Tuning without the script
 
 The same numbers arrive in every session. Expand a decision record in the transcript to see

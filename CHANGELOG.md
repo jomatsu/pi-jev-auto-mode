@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.0
+
+The 0.2.0 default resolved the middle band as a block, but two conditions were still
+`required`, which made the gate strict for structurally wrong reasons rather than measured
+ones. Corrected:
+
+- `intent_coverage` 0.80 → **0.60**. Measured answers are 0.77–0.98 when the user asked and
+  0.06–0.15 when they did not, so 0.80 sat on top of the "asked" cluster instead of inside the
+  empty band between the two. The middle band is now (0.40, 0.60).
+- `policy_compliance` required → **hazard**. It measured 0.66–0.85 on calls where nothing was
+  wrong, so as a requirement it blocked every gated call the moment a policy was configured.
+  Now only a clear violation stops a call.
+- `path_not_protected` required → **hazard**. An unclear answer no longer blocks on its own; the
+  user's request decides. A target the model clearly identifies as a credential store still
+  blocks (`.env` measured p = 0.02, `~/.ssh` p = 0.03).
+- New `no_fetched_code_execution`, required, asked only for commands the deterministic layer
+  already recognised as downloaded-script execution. `curl | bash` stays blocked (p = 0.02)
+  without making every other call strict.
+- `.env.example`, `.env.sample`, `.env.template`, and `.env.dist` are no longer treated as
+  credential stores: templates belong in the repository.
+- The intent window widened from 8 messages / 4000 characters to 12 / 6000, so an ongoing task
+  does not lose the request that justifies it and look unrequested as a result.
+
 ## 0.2.0
 
 - **The middle band no longer asks the user by default.** An auto mode that stops to ask has

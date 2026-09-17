@@ -367,7 +367,9 @@ export const PROTECTED_DIRECTORY_SEGMENTS: readonly string[] = [
 const PROTECTED_PATH_FRAGMENTS: readonly string[] = ["/.github/workflows/", "/.config/gh/"];
 
 const PROTECTED_FILE_PATTERNS: readonly RegExp[] = [
-  /^\.env(?:\..+)?$/i,
+  // `.env.example` and friends are templates that belong in the repository, so they are
+  // not treated as credential stores. The real files still are.
+  /^\.env(?!\.(?:example|sample|template|dist)$)(?:\..+)?$/i,
   /^\.npmrc$/i,
   /^\.netrc$/i,
   /^\.mcp\.json$/i,

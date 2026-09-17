@@ -149,11 +149,20 @@ describe("composition", () => {
 });
 
 describe("question set", () => {
-  it("asks one permission question and a set of hazard detectors", () => {
+  it("asks one permission question, plus one for the class that needs it", () => {
     const required = DEFAULT_RULES.filter((rule) => rule.mode === "required").map((rule) => rule.id);
-    // `path_not_protected` is the second permission-shaped question: it only asks
-    // whether a target the deterministic layer already distrusts is really safe.
-    assert.deepEqual(required, ["intent_coverage", "policy_compliance", "path_not_protected"]);
+    // Only two questions can hold a call back: "is this what the user asked for", and
+    // "does this fetch code and run it" for the commands the deterministic layer has
+    // already recognised as that shape. Everything else detects hazards and stays quiet
+    // unless a hazard is clearly present.
+    assert.deepEqual(required, ["intent_coverage", "no_fetched_code_execution"]);
+  });
+
+  it("asks the fetched-code question only for a downloaded-script command", () => {
+    const piped = rulesForTool("bash", DEFAULT_RULES, { hasPolicy: false, reasons: ["downloaded script execution"] });
+    const ordinary = rulesForTool("bash", DEFAULT_RULES, { hasPolicy: false, reasons: ["git reset hard"] });
+    assert.ok(piped.some((rule) => rule.id === "no_fetched_code_execution"));
+    assert.ok(!ordinary.some((rule) => rule.id === "no_fetched_code_execution"));
   });
 
   it("gates protected paths only for file tools", () => {
@@ -359,15 +368,22 @@ describe("engine", () => {
     assert.ok(Object.keys(requests[0]?.questions ?? {}).includes("path_not_protected"));
   });
 
-  it("escalates a protected target whose protection is unclear", async () => {
+  it("lets the request decide when protection is unclear", async () => {
+    // 0.28 is neither "protected" nor "not protected". The target was already escalated
+    // because the deterministic layer distrusts it, so an unclear answer must not block
+    // on its own: the user's request is the thing that makes the write legitimate.
     const probabilities = { ...satisfiedFor("write", true), path_not_protected: 0.28 };
 
     const { transport } = stubTransport({ ok: true, response: answerBody(probabilities) });
     const engine = createJevEngine({ transport });
-    const verdict = await engine.judge(candidate(protectedWrite()), {});
+    assert.equal((await engine.judge(candidate(protectedWrite()), {})).verdict, "allow");
 
-    assert.equal(verdict.verdict, "uncertain");
-    assert.match(verdict.rationale, /not clear whether the write target is protected/);
+    const rejected = { ...probabilities, intent_coverage: 0.05 };
+    const { transport: second } = stubTransport({ ok: true, response: answerBody(rejected) });
+    const otherEngine = createJevEngine({ transport: second });
+    const verdict = await otherEngine.judge(candidate(protectedWrite()), {});
+    assert.equal(verdict.verdict, "deny");
+    assert.match(verdict.rationale, /not part of what the user asked for/);
   });
 
   it("fails closed when the transport reports a failure", async () => {
@@ -416,14 +432,14 @@ describe("threshold overrides", () => {
   });
 
   it("changes the decision a probability leads to", async () => {
-    // 0.65 sits in the middle band under the calibrated 0.80 and passes under 0.60.
-    const probabilities = { ...satisfiedFor("bash"), intent_coverage: 0.65 };
+    // 0.55 is inside the middle band of the calibrated 0.60 and passes under 0.50.
+    const probabilities = { ...satisfiedFor("bash"), intent_coverage: 0.55 };
     const { transport } = stubTransport({ ok: true, response: answerBody(probabilities) });
 
-    const strict = createJevEngine({ transport });
-    assert.equal((await strict.judge(candidate(bashCall("git reset --hard HEAD~1")), {})).verdict, "uncertain");
+    const calibrated = createJevEngine({ transport });
+    assert.equal((await calibrated.judge(candidate(bashCall("git reset --hard HEAD~1")), {})).verdict, "uncertain");
 
-    const loosened = createJevEngine({ transport, thresholds: { intent_coverage: 0.6 } });
+    const loosened = createJevEngine({ transport, thresholds: { intent_coverage: 0.55 } });
     assert.equal((await loosened.judge(candidate(bashCall("git reset --hard HEAD~1")), {})).verdict, "allow");
   });
 

@@ -64,16 +64,23 @@ participates:
 - `severity`: `hazard` (a rejection always blocks) or `soft` (a rejection is cleared when the
   user's own request covers the call)
 
-| rule id | mode | severity | threshold |
-|---|---|---|---|
-| `intent_coverage` | required | hazard | 0.80 |
-| `policy_compliance` (only when a policy exists) | required | hazard | 0.80 |
-| `path_not_protected` (only when the deterministic layer flagged the target) | required | hazard | 0.90 |
-| `local_scope` | hazard | soft | 0.90 |
-| `no_outward_effect` | hazard | soft | 0.90 |
-| `no_irreversible_damage` | hazard | soft | 0.80 |
-| `no_secret_egress` | hazard | hazard | 0.97 |
-| `prompt_injection_absent` | hazard | hazard | 0.80 |
+| rule id | mode | severity | threshold | asked when |
+|---|---|---|---|---|
+| `intent_coverage` | required | hazard | 0.60 | always |
+| `no_fetched_code_execution` | required | hazard | 0.90 | the command downloads code and runs it |
+| `policy_compliance` | hazard | hazard | 0.80 | a policy is configured |
+| `path_not_protected` | hazard | hazard | 0.90 | the deterministic layer flagged the target |
+| `local_scope` | hazard | soft | 0.90 | always |
+| `no_outward_effect` | hazard | soft | 0.90 | always |
+| `no_irreversible_damage` | hazard | soft | 0.80 | always |
+| `no_secret_egress` | hazard | hazard | 0.97 | always |
+| `prompt_injection_absent` | hazard | hazard | 0.80 | always |
+
+Only two conditions can hold a call back: "is this what the user asked for", and — for commands
+the deterministic layer has already recognised as fetching code — "does this run code from the
+network". Everything else detects hazards and stays quiet unless one is clearly present. Making
+a hazard detector a requirement is a category error: measured answers for "is no secret being
+sent?" sit at 0.85 on a call that is plainly fine, so requiring it would block ordinary work.
 
 Composition happens in code, not in the model: one rejection from a `hazard`-severity condition
 blocks, a `soft` rejection is cleared by a satisfied `intent_coverage`, an unclear `required`
@@ -105,7 +112,7 @@ shipped to everyone.
 
 ## Tests
 
-171 tests, none of which need a network or an API key: the engine and transport are stubbed so
+172 tests, none of which need a network or an API key: the engine and transport are stubbed so
 every branch — allow, deny, cleared-by-intent, uncertain, each unavailable reason, boundary
 probabilities — is deterministic. The real API is exercised by two scripts that are not part of
 the published package:

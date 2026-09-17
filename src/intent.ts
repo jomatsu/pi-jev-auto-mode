@@ -15,9 +15,12 @@ export interface IntentOptions {
 }
 
 export const DEFAULT_INTENT_OPTIONS: IntentOptions = {
-  maxMessages: 8,
+  // Wide enough that the request behind an ongoing task is still in the window. The
+  // intent is a couple of percent of the request payload, so this costs little; losing
+  // the request would make the gate look strict for the wrong reason.
+  maxMessages: 12,
   maxMessageChars: 1200,
-  maxTotalChars: 4000,
+  maxTotalChars: 6000,
 };
 
 export const NO_INTENT_TEXT = "";

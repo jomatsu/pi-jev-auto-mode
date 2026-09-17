@@ -84,7 +84,7 @@ describe("threshold table", () => {
   it("lists every rule with its mode, severity, and last observed probability", () => {
     const table = formatRuleTable(DEFAULT_RULES, { intent_coverage: 0.6 }, observed);
     assert.match(table, /rule\s+mode\s+severity\s+threshold/);
-    assert.match(table, /intent_coverage\s+required\s+hazard\s+0\.60 override \(default 0\.80\)\s+p=0\.97 \(satisfied\)/);
+    assert.match(table, /intent_coverage\s+required\s+hazard\s+0\.60 override \(default 0\.60\)\s+p=0\.97 \(satisfied\)/);
     assert.match(table, /no_secret_egress\s+hazard\s+hazard\s+0\.97 default\s+p=0\.02 \(rejected\)/);
   });
 
@@ -99,7 +99,7 @@ describe("threshold table", () => {
     // p <= 0.01, so the 0.02 answer that used to reject no longer does.
     assert.match(raised, /no_secret_egress\s+hazard\s+hazard\s+0\.99 override \(default 0\.97\)\s+p=0\.02 \(ignored\)/);
     // ...while a required rule in the middle band escalates.
-    assert.match(raised, /intent_coverage\s+required\s+hazard\s+0\.99 override \(default 0\.80\)\s+p=0\.97 \(uncertain\)/);
+    assert.match(raised, /intent_coverage\s+required\s+hazard\s+0\.99 override \(default 0\.60\)\s+p=0\.97 \(uncertain\)/);
   });
 
   it("labels a middle-band answer on a hazard rule as ignored", () => {
@@ -115,7 +115,7 @@ describe("threshold table", () => {
 
   it("shows a dash when a condition has not been observed yet", () => {
     const table = formatRuleTable(DEFAULT_RULES, {}, new Map());
-    assert.match(table, /intent_coverage\s+required\s+hazard\s+0\.80 default\s+-/);
+    assert.match(table, /intent_coverage\s+required\s+hazard\s+0\.60 default\s+-/);
   });
 });
 
