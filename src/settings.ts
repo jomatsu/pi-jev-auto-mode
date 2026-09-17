@@ -20,6 +20,9 @@ export interface JevAutoModeSettings {
   readonly timeoutMs: number;
   /** Retries after the first attempt. */
   readonly maxRetries: number;
+  /** Commands the user considers safe to run without a decision record. */
+  readonly safeCommands: readonly string[];
+  /** Commands that override a dangerous-pattern match; the override is recorded. */
   readonly allowedCommands: readonly string[];
   readonly disallowedCommands: readonly string[];
   readonly extraProtectedPaths: readonly string[];
@@ -40,8 +43,7 @@ export const DEFAULT_SETTINGS: JevAutoModeSettings = {
   enabled: true,
   timeoutMs: 4000,
   maxRetries: 1,
-  // User additions only. The built-in safe commands live in `policy.ts` and are
-  // not configurable, so a settings file cannot quietly widen the fast path.
+  safeCommands: [],
   allowedCommands: [],
   disallowedCommands: [],
   extraProtectedPaths: [],
@@ -137,6 +139,9 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
 
   const maxStateCharacters = readBoundedInteger(record.maxStateCharacters, 1000, 1_000_000);
   if (maxStateCharacters !== undefined) patch.maxStateCharacters = maxStateCharacters;
+
+  const safeCommands = record.safeCommands === undefined ? undefined : readStringArray(record.safeCommands);
+  if (safeCommands !== undefined) patch.safeCommands = safeCommands;
 
   const allowedCommands = record.allowedCommands === undefined ? undefined : readStringArray(record.allowedCommands);
   if (allowedCommands !== undefined) patch.allowedCommands = allowedCommands;

@@ -8,7 +8,7 @@ cannot be made.
 
 > **Status: milestones 1–3 are complete.** The deterministic envelope, the JEV engine,
 > real-API calibration, settings, policy notes, per-rule threshold tuning, and decision
-> records are implemented and tested (126 tests, no network). See [`PLAN.md`](./PLAN.md) for
+> records are implemented and tested (153 tests, no network). See [`docs/plan.md`](./docs/plan.md) for
 > the roadmap and [`docs/calibration.md`](./docs/calibration.md) for the measured
 > probabilities behind every threshold.
 
@@ -84,8 +84,12 @@ pi -e /absolute/path/to/pi-jev-auto-mode
 pi --jev-auto-mode        start with auto mode enabled
 ```
 
-The semantic layer needs a TypeSafe API key. `/jev-auto-mode login` asks for it, verifies it
-against the API (`GET /v1/models`), and stores it as an owner-only file at
+The semantic layer needs a [TypeSafe](https://typesafe.ai/) API key. JEV is early access, so an
+account may be waitlisted; **the gate still works without one**, running in ask-only mode
+(confirm in a UI, block without one) rather than silently allowing everything.
+
+`/jev-auto-mode login` asks for the key, verifies it against the API (`GET /v1/models`), and
+stores it as an owner-only file at
 `$PI_CODING_AGENT_DIR/secrets/jev-auto-mode-typesafe-api-key` (mode `0600`) — the same place Pi
 keeps its own credentials, so it is never committed with a project. `TYPESAFE_API_KEY` takes
 precedence when set, so a one-off or CI override needs no login. `TYPESAFE_DEFAULT_MODEL`
@@ -148,6 +152,7 @@ Policy notes: `$PI_CODING_AGENT_DIR/jev-auto-mode-policy.md`.
   "enabled": true,
   "timeoutMs": 4000,
   "maxRetries": 1,
+  "safeCommands": ["uv run pytest*", "pnpm run typecheck*"],
   "allowedCommands": ["rm -rf build*"],
   "disallowedCommands": ["npm publish*"],
   "extraProtectedPaths": [],
@@ -160,10 +165,18 @@ Policy notes: `$PI_CODING_AGENT_DIR/jev-auto-mode-policy.md`.
   redirection, substitution), so `ls*` cannot approve `ls && rm -rf /`.
 - Malformed values are dropped rather than defaulted, so a broken project file cannot pin a
   value that overrides the global layer.
-- The built-in safe-command list is not configurable: a settings file cannot widen the fast
-  path. It contains read-only inspection (`git status`/`diff`/`log`/`show`/`branch`, `ls`,
-  `pwd`, `rg`, `grep`) and local verification (`uv run pytest|ruff|mypy`). Anything that runs
-  arbitrary package code (`npm run …`, `npx`, `uvx`) is escalated on purpose.
+- There are two ways to widen the fast path, with different meanings:
+
+  | Setting | Effect |
+  |---|---|
+  | `safeCommands` | Run without a decision record. For commands that are safe *on your machine*: `uv run pytest*`, `npm run test*`, `cargo test*`, `go test ./...*` |
+  | `allowedCommands` | Override a dangerous-pattern match. The override is recorded, so approving `rm -rf build` by rule is visible |
+
+  The built-in safe list is not configurable and holds read-only inspection only (`git
+  status`/`diff`/`log`/`show`/`branch`, `ls`, `pwd`, `rg`, `grep`). It deliberately contains no
+  command that executes project code: a test runner runs repository code, so declaring it safe
+  is a decision for the machine that owns it, not a default shipped to everyone. Allow patterns
+  never match a command containing shell control syntax, so `ls*` cannot approve `ls && rm -rf /`.
 
 ## What leaves the machine
 
@@ -196,6 +209,7 @@ Layout:
 | `src/intent.ts` | recent user-authored intent only |
 | `src/decide.ts` | the decision-engine seam (`DecisionEngine`) |
 | `src/jev/questions.ts` | the condition set, modes, severities, thresholds |
+| `src/jev/availability.ts` | where the API key comes from (env or stored secret) |
 | `src/jev/decide.ts` | probability → condition verdict → decision |
 | `src/jev/engine.ts` | one request per call, budget guard, calibration hook |
 | `src/jev/transport.ts` | the SDK, wrapped so failures become decisions |
@@ -211,9 +225,10 @@ The deterministic pattern catalogue is adapted from
 [`@nilskluewer/pi-auto-permission-gate`](https://github.com/nilskluewer/pi-auto-permission-gate)
 (MIT), and the three-layer structure (fast paths → hard rules → classifier) follows the same
 extension and Qwen Code's Auto Mode. The JEV design constraints (fail closed, two-sided
-thresholds that keep the middle band meaningful, one request per judgment) come from
-[`zod-jev`](https://github.com/jomatsu/zod-jev), which was written as a reference for how
-JEV behaves; this package does not depend on it.
+thresholds that keep the middle band meaningful, one request per judgment) come from measuring
+the API directly — [`docs/calibration.md`](./docs/calibration.md) records the measurements and
+the reasoning. Nothing here depends on a wrapper library: the JEV layer is written against the
+official SDK.
 
 ## License
 

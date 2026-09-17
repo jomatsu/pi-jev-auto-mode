@@ -25,7 +25,10 @@
   "files": [
     "index.ts",
     "src",
+    "docs",
     "README.md",
+    "CHANGELOG.md",
+    "SECURITY.md",
     "LICENSE"
   ],
   "pi": {
@@ -35,7 +38,9 @@
   },
   "scripts": {
     "test": "node --test --experimental-strip-types --test-reporter=spec 'test/**/*.test.ts'",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test",
+    "prepublishOnly": "npm run check"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

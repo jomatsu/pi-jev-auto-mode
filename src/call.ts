@@ -41,6 +41,8 @@ export interface GatedCall {
 export interface CallOptions {
   readonly cwd: string;
   readonly maxCommandLength?: number;
+  /** Additional protected locations from settings. */
+  readonly extraProtectedPaths?: readonly string[];
 }
 
 export const DEFAULT_MAX_COMMAND_LENGTH = 4000;
@@ -102,7 +104,7 @@ export function buildGatedCall(event: ToolCallEventLike, options: CallOptions): 
 
   if (event.toolName === "write" || event.toolName === "edit") {
     const inputPath = asString(event.input.path) ?? "";
-    const target = classifyWriteTarget(inputPath, options.cwd);
+    const target = classifyWriteTarget(inputPath, options.cwd, options.extraProtectedPaths ?? []);
     const editCount = Array.isArray(event.input.edits) ? event.input.edits.length : undefined;
     const contentLength = asString(event.input.content)?.length;
 

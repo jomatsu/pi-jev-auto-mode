@@ -122,6 +122,36 @@ describe("fast path", () => {
     assert.equal(result, undefined);
     assert.deepEqual(inputs, []);
   });
+
+  it("honours a user-declared safe command without recording it", async () => {
+    const { deps, records, inputs } = createDeps();
+    const result = await evaluateToolCall(
+      bash("uv run pytest -q"),
+      createContext(),
+      stateWith({ safeCommands: ["uv run pytest*"] }),
+      deps,
+    );
+    assert.equal(result, undefined);
+    assert.deepEqual(records, [], "a declared-safe command stays out of the transcript");
+    assert.deepEqual(inputs, [], "and out of the semantic layer");
+  });
+
+  it("escalates a verification runner that the user has not declared safe", async () => {
+    const { deps, inputs } = createDeps();
+    await evaluateToolCall(bash("uv run pytest -q"), createContext(), stateWith(), deps);
+    assert.deepEqual(inputs[0]?.reasons, ["package execution or publish"]);
+  });
+
+  it("escalates a write to a configured protected path", async () => {
+    const { deps, inputs } = createDeps();
+    await evaluateToolCall(
+      { toolName: "write", input: { path: "ops/secrets.yaml", content: "x" } },
+      createContext(),
+      stateWith({ extraProtectedPaths: ["secrets.yaml"] }),
+      deps,
+    );
+    assert.deepEqual(inputs[0]?.reasons, ["configured protected path `secrets.yaml`"]);
+  });
 });
 
 describe("deterministic layer wins before the engine", () => {

@@ -31,12 +31,16 @@ export interface CommandPattern {
 }
 
 /**
- * Read-only inspection and local verification commands.
+ * Read-only inspection commands.
  *
- * These run without producing a decision record: they are the baseline the gate
- * must not make noisy, and none of them can change state outside the working
- * tree. Anything that executes package scripts (`npm run ...`, `npx`, `uv run
- * python ...`) is deliberately absent and goes through the semantic layer.
+ * These run without producing a decision record: they cannot change state outside
+ * the working tree, so gating them would only add latency.
+ *
+ * The built-in list is deliberately stack-neutral and contains no command that
+ * executes project code. A verification runner (`uv run pytest`, `npm run test`,
+ * `cargo test`, `go test`, ...) executes arbitrary code from the repository, which
+ * is exactly the category the gate exists to judge — so those belong in the user's
+ * `safeCommands` setting, where the choice is explicit and local.
  */
 export const SAFE_COMMANDS: readonly string[] = [
   "git status*",
@@ -48,10 +52,6 @@ export const SAFE_COMMANDS: readonly string[] = [
   "pwd",
   "rg*",
   "grep*",
-  "uv run pytest*",
-  "uv run ruff check*",
-  "uv run ruff format*",
-  "uv run mypy*",
 ];
 
 /**
@@ -367,16 +367,41 @@ function normalizeForMatching(absolutePath: string): string {
   return absolutePath.replace(/\\/g, "/");
 }
 
-export function protectedPathReason(absolutePath: string): string | undefined {
+/**
+ * Classify a path against the protected locations.
+ *
+ * `extraProtectedPaths` comes from settings. An entry containing `/` is matched as a
+ * path fragment; anything else is matched against the file name. Matching is
+ * case-insensitive on the normalized path.
+ */
+export function protectedPathReason(
+  absolutePath: string,
+  extraProtectedPaths: readonly string[] = [],
+): string | undefined {
+  // Matching is case-insensitive, but the reported name keeps the original case:
+  // the message is read by a person looking at their own path.
   const normalized = normalizeForMatching(absolutePath);
+  const lowered = normalized.toLowerCase();
   const segments = normalized.split("/").filter(Boolean);
-  const segment = segments.find((part) => PROTECTED_DIRECTORY_SEGMENTS.includes(part));
+  const loweredSegments = lowered.split("/").filter(Boolean);
+  const baseName = segments[segments.length - 1] ?? "";
+  const loweredBaseName = loweredSegments[loweredSegments.length - 1] ?? "";
+
+  const extraEntry = extraProtectedPaths
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .find((entry) => {
+      const loweredEntry = entry.toLowerCase();
+      return loweredEntry.includes("/") ? lowered.includes(loweredEntry) : loweredBaseName === loweredEntry;
+    });
+  if (extraEntry) return `configured protected path \`${extraEntry}\``;
+
+  const segment = loweredSegments.find((part) => PROTECTED_DIRECTORY_SEGMENTS.includes(part));
   if (segment) return `protected directory \`${segment}\``;
 
-  const fragment = PROTECTED_PATH_FRAGMENTS.find((part) => normalized.endsWith(part) || normalized.includes(part));
+  const fragment = PROTECTED_PATH_FRAGMENTS.find((part) => lowered.includes(part));
   if (fragment) return `protected path \`${fragment}\``;
 
-  const baseName = segments[segments.length - 1] ?? "";
   const filePattern = PROTECTED_FILE_PATTERNS.find((pattern) => pattern.test(baseName));
   if (filePattern) return `protected file \`${baseName}\``;
 
@@ -396,7 +421,11 @@ export interface WriteTarget {
  * A symlink inside the working directory can still point outside it; resolving
  * that needs a filesystem call and belongs to the JEV layer's state building.
  */
-export function classifyWriteTarget(inputPath: string, cwd: string): WriteTarget {
+export function classifyWriteTarget(
+  inputPath: string,
+  cwd: string,
+  extraProtectedPaths: readonly string[] = [],
+): WriteTarget {
   const projectRoot = resolve(cwd);
   const absolute = resolve(projectRoot, inputPath);
   const relativeToCwd = relative(projectRoot, absolute);
@@ -408,7 +437,7 @@ export function classifyWriteTarget(inputPath: string, cwd: string): WriteTarget
     absolute,
     relativeToCwd: outsideCwd ? undefined : relativeToCwd,
     outsideCwd,
-    protectedReason: protectedPathReason(absolute),
+    protectedReason: protectedPathReason(absolute, extraProtectedPaths),
   };
 }
 

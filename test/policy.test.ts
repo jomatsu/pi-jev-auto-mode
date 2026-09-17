@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 import {
   classifyWriteTarget,
@@ -84,18 +85,27 @@ describe("dangerous candidates", () => {
 });
 
 describe("safe commands", () => {
-  it("recognizes read-only inspection and local verification", () => {
+  it("recognizes read-only inspection", () => {
     assert.equal(isSafeCommand("git status --short"), true);
-    assert.equal(isSafeCommand("uv run pytest -q"), true);
+    assert.equal(isSafeCommand("rg -n TODO src"), true);
   });
 
-  it("refuses to fast-path anything that runs arbitrary package code", () => {
+  it("does not fast-path anything that runs project code", () => {
+    // A verification runner executes arbitrary code from the repository, so the
+    // shipped default leaves it to the user to declare as safe.
+    assert.equal(isSafeCommand("uv run pytest -q"), false);
     assert.equal(isSafeCommand("npm run build"), false);
     assert.equal(isSafeCommand("npx some-package"), false);
+    assert.equal(isSafeCommand("cargo test"), false);
+  });
+
+  it("accepts user-declared safe commands", () => {
+    assert.equal(isSafeCommand("uv run pytest -q", ["uv run pytest*"]), true);
   });
 
   it("does not fast-path through shell control syntax", () => {
     assert.equal(isSafeCommand("git status; rm -rf /"), false);
+    assert.equal(isSafeCommand("git status; rm -rf /", ["git status*"]), false);
   });
 });
 
@@ -112,12 +122,35 @@ describe("protected paths", () => {
   it("leaves ordinary source files alone", () => {
     assert.equal(protectedPathReason("/Users/dev/project/src/index.ts"), undefined);
   });
+
+  it("honours configured protected paths, by fragment or by name", () => {
+    assert.equal(
+      protectedPathReason("/Users/dev/project/ops/secrets.yaml", ["secrets.yaml"]),
+      "configured protected path `secrets.yaml`",
+    );
+    assert.equal(
+      protectedPathReason("/Users/dev/project/infra/prod/main.tf", ["infra/prod/"]),
+      "configured protected path `infra/prod/`",
+    );
+    assert.equal(protectedPathReason("/Users/dev/project/src/index.ts", ["secrets.yaml"]), undefined);
+  });
+
+  it("matches configured paths case-insensitively but reports what the user wrote", () => {
+    assert.equal(
+      protectedPathReason("/Users/dev/project/Secrets.YAML", ["secrets.yaml"]),
+      "configured protected path `secrets.yaml`",
+    );
+  });
+
+  it("keeps the original case of a path in the message", () => {
+    assert.equal(protectedPathReason("/Users/dev/project/AGENTS.md"), "protected file `AGENTS.md`");
+  });
 });
 
 describe("write targets", () => {
   it("classifies a path inside the working directory", () => {
     const target = classifyWriteTarget("src/index.ts", CWD);
-    assert.equal(target.absolute, "/Users/dev/project/src/index.ts");
+    assert.equal(target.absolute, join(CWD, "src/index.ts"));
     assert.equal(target.relativeToCwd, "src/index.ts");
     assert.equal(target.outsideCwd, false);
     assert.equal(target.protectedReason, undefined);

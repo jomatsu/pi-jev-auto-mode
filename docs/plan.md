@@ -8,7 +8,7 @@ Status: **M1–M4 complete; M5 in progress.** Installed and exercised in a real 
 (tmux-driven): the footer reports the live engine, a hard-deny command is blocked before JEV,
 an explicitly requested command is judged and allowed, the threshold table and per-condition
 records render, and the credential lifecycle works (stored secret → engine switch → logout →
-ask-only). 146 tests. Remaining: repeated calibration runs to settle the thresholds.
+ask-only). 153 tests. Remaining: repeated calibration runs to settle the thresholds.
 
 Measured probabilities and the reasoning behind every threshold:
 [`docs/calibration.md`](./docs/calibration.md).
@@ -111,7 +111,7 @@ questions, and the model never has to weigh concerns against each other.
 | M2 | `src/jev/`: transport over `@typesafe-ai/sdk`, question set, response re-validation, probability mapping, real-API calibration | stub transport drives allow/deny/ask/unavailable deterministically; twelve real fixtures land on the expected outcomes | **done** |
 | M3 | per-rule threshold overrides, tuning table, condition-level record rendering | per-condition probabilities are visible and tunable from a session | **done** |
 | M4 | fail-closed, injection, abort, redaction hardening; privacy review | missing key, timeout, malformed response, and abort can never produce an allow | **done** |
-| M5 | `pi install` distribution, docs, repeated calibration runs | installed and exercised in a real Pi session; the fixture set is stable across repeated runs | in progress |
+| M5 | distribution and repeated calibration | installed and exercised in a real Pi session (tmux-driven); CI runs the suite offline on Linux and macOS; remaining: repeated calibration runs so the thresholds are chosen from bands rather than single samples | in progress |
 
 ## 5. Calibration and tests
 

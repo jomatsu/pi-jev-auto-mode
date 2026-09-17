@@ -5,6 +5,9 @@ probabilities returned by the real API.
 
 ## Method
 
+`scripts/calibrate.ts` is not part of the published package; run it from a checkout of the
+repository.
+
 ```sh
 export TYPESAFE_API_KEY=apikey_...        # or keep it in the environment
 node --experimental-strip-types scripts/calibrate.ts

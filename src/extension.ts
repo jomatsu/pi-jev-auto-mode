@@ -187,7 +187,10 @@ export async function evaluateToolCall(
 ): Promise<BlockResult | undefined> {
   if (!state.settings.enabled) return undefined;
 
-  const call = buildGatedCall(event, { cwd: ctx.cwd });
+  const call = buildGatedCall(event, {
+    cwd: ctx.cwd,
+    extraProtectedPaths: state.settings.extraProtectedPaths,
+  });
   if (!call) return undefined;
 
   const ruleConfig = {
@@ -221,8 +224,8 @@ export async function evaluateToolCall(
       });
     }
 
-    // Built-in read-only and verification commands run without a record.
-    if (isSafeCommand(command)) return undefined;
+    // Read-only built-ins plus the user's own safe commands run without a record.
+    if (isSafeCommand(command, state.settings.safeCommands)) return undefined;
 
     reasons = dangerousReasons(command, ctx.cwd);
     // Nothing dangerous matched: this is the fast path the gate exists to preserve.

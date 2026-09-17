@@ -38,6 +38,7 @@ export function describeSettings(settings: JevAutoModeSettings, scope: SettingsS
     `enabled: ${settings.enabled}`,
     `scope: ${scope}`,
     `timeout: ${settings.timeoutMs}ms (retries ${settings.maxRetries})`,
+    `safe commands: ${settings.safeCommands.length}`,
     `allowed commands: ${settings.allowedCommands.length}`,
     `disallowed commands: ${settings.disallowedCommands.length}`,
     `extra protected paths: ${settings.extraProtectedPaths.length}`,
