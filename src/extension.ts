@@ -268,6 +268,8 @@ export async function evaluateToolCall(
   const input: CandidateInput = {
     call,
     reasons,
+    // "not on the known-safe list" is the scope's own label, not a recognised danger.
+    flagged: reasons.some((reason) => reason !== NOT_KNOWN_SAFE_REASON),
     intent: extractRecentIntent(conversationBranch(ctx)),
     policy: state.policyNotes,
     repo: repoFacts(ctx.cwd, call),

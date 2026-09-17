@@ -52,6 +52,12 @@ export interface CandidateInput {
   readonly call: GatedCall;
   /** Names of the policy patterns this call matched. */
   readonly reasons: readonly string[];
+  /**
+   * Whether the deterministic layer recognised the call as a dangerous shape.
+   * Required rather than optional: a caller that forgets it would silently skip the
+   * intent question, which is the wrong direction to fail in.
+   */
+  readonly flagged: boolean;
   readonly intent: string;
   readonly policy: string;
   readonly repo: RepoFacts;

@@ -42,6 +42,7 @@ const engine = createJevEngine({
 const input: CandidateInput = {
   call,
   reasons: ["git reset hard"],
+  flagged: true,
   intent: extractRecentIntent(branch),
   policy: "",
   repo: REPO,

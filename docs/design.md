@@ -66,7 +66,7 @@ participates:
 
 | rule id | mode | severity | threshold | asked when |
 |---|---|---|---|---|
-| `intent_coverage` | required | hazard | 0.60 | always |
+| `intent_coverage` | hazard | hazard | 0.60 | a recognised dangerous shape |
 | `no_fetched_code_execution` | required | hazard | 0.90 | the command downloads code and runs it |
 | `policy_compliance` | hazard | hazard | 0.80 | a policy is configured |
 | `path_not_protected` | hazard | hazard | 0.90 | the deterministic layer flagged the target |
@@ -113,10 +113,13 @@ everything else is judged. Cost of the inversion:
 - **Latency.** A judged call costs roughly half a second (measured median 503 ms, max 593 ms
   across eleven ordinary commands) against nothing for a fast-path call. With dozens of tool
   calls per task, the read-only allowlist is what keeps the gate tolerable.
-- **Intent becomes load-bearing.** A call the user never mentioned has to be clear enough to pass
-  the intent question. An incidental `mv`, `cp`, `chmod -x`, or `tar` that the request does not
-  cover is blocked rather than assumed. That is the intended reading of "judge everything", and
-  it is also the part to revisit first if the gate feels obstructive.
+- **The intent question has to be scoped, not blanket.** Asking "did the user ask for this?"
+  about every command blocks ordinary work the agent does on its own initiative — a `mkdir`, a
+  `cp`, a `tar` — and an auto mode that stops for those defeats itself. So the question is asked
+  only about commands the deterministic layer recognised as a dangerous shape, and it runs in
+  hazard mode: only a clear "no" blocks. An unrequested `git reset --hard`, `npm publish`,
+  `rm -rf`, or `sudo` fails it clearly (measured p = 0.04–0.11); an unrequested `mv` or `tar`
+  never sees the question and is allowed when no hazard is evident.
 
 ## Fast paths
 

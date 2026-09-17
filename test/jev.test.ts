@@ -51,7 +51,7 @@ function bashCall(command: string): GatedCall {
 }
 
 function candidate(call: GatedCall, policy = ""): CandidateInput {
-  return { call, reasons: ["git reset hard"], intent: "rebase my working branch", policy, repo: REPO };
+  return { call, reasons: ["git reset hard"], flagged: true, intent: "rebase my working branch", policy, repo: REPO };
 }
 describe("condition classification", () => {
   it("uses two symmetric thresholds and keeps the middle band", () => {
@@ -149,13 +149,20 @@ describe("composition", () => {
 });
 
 describe("question set", () => {
-  it("asks one permission question, plus one for the class that needs it", () => {
+  it("leaves only hazard detectors that must be satisfied", () => {
     const required = DEFAULT_RULES.filter((rule) => rule.mode === "required").map((rule) => rule.id);
-    // Only two questions can hold a call back: "is this what the user asked for", and
-    // "does this fetch code and run it" for the commands the deterministic layer has
-    // already recognised as that shape. Everything else detects hazards and stays quiet
-    // unless a hazard is clearly present.
-    assert.deepEqual(required, ["intent_coverage", "no_fetched_code_execution"]);
+    // One question can hold a call back: "does this fetch code and run it", asked only
+    // for commands the deterministic layer recognised as that shape. Everything else —
+    // including "is this what the user asked for" — detects a hazard and stays quiet
+    // unless one is clearly present.
+    assert.deepEqual(required, ["no_fetched_code_execution"]);
+  });
+
+  it("asks the intent question only for a recognised dangerous shape", () => {
+    const flagged = rulesForTool("bash", DEFAULT_RULES, { hasPolicy: false, flagged: true }).map((rule) => rule.id);
+    const plain = rulesForTool("bash", DEFAULT_RULES, { hasPolicy: false, flagged: false }).map((rule) => rule.id);
+    assert.ok(flagged.includes("intent_coverage"));
+    assert.equal(plain.includes("intent_coverage"), false, "ordinary work is not asked whether it was requested");
   });
 
   it("asks the fetched-code question only for a downloaded-script command", () => {
@@ -276,8 +283,8 @@ function protectedWrite(): GatedCall {
 }
 
 /** Every condition the engine will ask with no policy configured. */
-function askedRules(tool: "bash" | "write", protectedTarget = false): readonly JevRule[] {
-  return rulesForTool(tool, DEFAULT_RULES, { hasPolicy: false, hasProtectedTarget: protectedTarget });
+function askedRules(tool: "bash" | "write", protectedTarget = false, flagged = true): readonly JevRule[] {
+  return rulesForTool(tool, DEFAULT_RULES, { hasPolicy: false, hasProtectedTarget: protectedTarget, flagged });
 }
 
 function satisfiedFor(tool: "bash" | "write", protectedTarget = false): Record<string, number> {
@@ -323,14 +330,24 @@ describe("engine", () => {
     assert.match(verdict.rationale, /request covers this call/);
   });
 
-  it("escalates when the request itself is unclear", async () => {
+  it("does not block a dangerous command on an unclear intent", async () => {
+    // The intent question is a hazard detector: an unclear answer is not a violation.
     const probabilities = { ...satisfiedFor("bash"), intent_coverage: 0.5 };
     const { transport } = stubTransport({ ok: true, response: answerBody(probabilities) });
     const engine = createJevEngine({ transport });
 
     const verdict = await engine.judge(candidate(bashCall("git reset --hard HEAD~1")), {});
-    assert.equal(verdict.verdict, "uncertain");
-    assert.match(verdict.rationale, /request covers this call/);
+    assert.equal(verdict.verdict, "allow");
+  });
+
+  it("blocks a dangerous command the user clearly did not ask for", async () => {
+    const probabilities = { ...satisfiedFor("bash"), intent_coverage: 0.05 };
+    const { transport } = stubTransport({ ok: true, response: answerBody(probabilities) });
+    const engine = createJevEngine({ transport });
+
+    const verdict = await engine.judge(candidate(bashCall("git reset --hard HEAD~1")), {});
+    assert.equal(verdict.verdict, "deny");
+    assert.match(verdict.rationale, /not part of what the user asked for/);
   });
 
   it("reports every condition to the calibration hook, including passing ones", async () => {
@@ -432,15 +449,15 @@ describe("threshold overrides", () => {
   });
 
   it("changes the decision a probability leads to", async () => {
-    // 0.55 is inside the middle band of the calibrated 0.60 and passes under 0.50.
-    const probabilities = { ...satisfiedFor("bash"), intent_coverage: 0.55 };
+    // 0.05 is above the reject line of the calibrated 0.97 and below the one at 0.90.
+    const probabilities = { ...satisfiedFor("bash"), no_secret_egress: 0.05 };
     const { transport } = stubTransport({ ok: true, response: answerBody(probabilities) });
 
     const calibrated = createJevEngine({ transport });
-    assert.equal((await calibrated.judge(candidate(bashCall("git reset --hard HEAD~1")), {})).verdict, "uncertain");
+    assert.equal((await calibrated.judge(candidate(bashCall("git reset --hard HEAD~1")), {})).verdict, "allow");
 
-    const loosened = createJevEngine({ transport, thresholds: { intent_coverage: 0.55 } });
-    assert.equal((await loosened.judge(candidate(bashCall("git reset --hard HEAD~1")), {})).verdict, "allow");
+    const tightened = createJevEngine({ transport, thresholds: { no_secret_egress: 0.9 } });
+    assert.equal((await tightened.judge(candidate(bashCall("git reset --hard HEAD~1")), {})).verdict, "deny");
   });
 
   it("reports the effective thresholds alongside the probabilities", async () => {

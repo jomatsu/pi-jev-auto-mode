@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0
+
+- **The "did the user ask for this?" question is now asked only about commands the deterministic
+  layer recognised as a dangerous shape, and only a clear "no" blocks it.** Under `gateScope:
+  all` it had been asked about every command, so ordinary work the request never mentioned — a
+  `mv`, a `cp`, a `tar`, a `chmod +x` — was blocked. An auto mode that stops for those has no
+  reason to exist; the agent is doing its job, not going off the rails.
+- `intent_coverage` moves from required to hazard mode for the same reason. A recognised
+  dangerous shape the user never asked for still fails it clearly (measured p = 0.04–0.11), which
+  is where the question earns its place, and a merely unclear answer no longer stops a call.
+- Measured after the change: an unrequested `mv`, `cp`, `tar`, `chmod +x`, or `node -e` is
+  allowed; an unrequested `git reset --hard`, `npm publish`, `rm -rf`, or `sudo` is blocked.
+
 ## 0.4.0
 
 **The semantic layer now sees everything the deterministic layer cannot vouch for.**

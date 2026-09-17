@@ -38,11 +38,15 @@ the deterministic layer names what it can vouch for — read-only inspection, yo
 commands, a write inside the project to an unprotected path — and everything else is judged.
 `matched` restores the old pattern-only behaviour. `/jev-auto-mode scope all|matched` changes it.
 
-The trade is latency: a judged call costs roughly half a second (measured median 503 ms, max
-593 ms over eleven commands), while a fast-path call costs nothing. Read-only inspection is
-therefore a real allowlist rather than a convenience. The other side of the trade is intent: a
-call the user did not ask for has to be clear enough to pass the intent question, so an
-incidental `mv`, `cp`, or `chmod` the request never mentioned is blocked rather than assumed.
+The trade is latency: a judged call costs roughly half a second (measured 193–642 ms across
+eleven ordinary commands), while a fast-path call costs nothing. Read-only inspection is
+therefore a real allowlist rather than a convenience.
+
+An auto mode that stops for ordinary work has no reason to exist, so **the intent question is
+asked only about commands the deterministic layer recognised as a dangerous shape, and only a
+clear "this was not requested" blocks**. Measured: an unrequested `mv`, `cp`, `tar`, `chmod +x`,
+or `node -e` is judged and allowed, while an unrequested `git reset --hard`, `npm publish`,
+`rm -rf`, or `sudo` is blocked.
 
 `rm -rf build` inside the repository is recognized as a scoped local deletion. A write to
 `.env`, `.git/`, `~/.ssh`, `.pi/`, `.github/workflows/`, or `AGENTS.md` is escalated even when

@@ -205,7 +205,7 @@ describe("command wiring", () => {
 
     const message = harness.notifications.at(-1)?.message ?? "";
     assert.match(message, /requires p >= 0\.60/);
-    assert.match(message, /intent_coverage\s+required\s+hazard\s+0\.60 override/);
+    assert.match(message, /intent_coverage\s+hazard\s+hazard\s+0\.60 override/);
   });
 
   it("lists the thresholds without changing them", async () => {

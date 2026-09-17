@@ -69,6 +69,7 @@ export function createJevEngine(options: JevEngineOptions): DecisionEngine {
           hasPolicy,
           hasProtectedTarget: input.call.protectedReason !== undefined,
           reasons: input.reasons,
+          flagged: input.flagged,
         }),
         options.thresholds,
       );
