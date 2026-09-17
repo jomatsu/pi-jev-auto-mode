@@ -17,10 +17,31 @@ This package splits those two responsibilities and keeps the envelope authoritat
 | Approve a call the deterministic layer escalated | Approve a hard-deny command |
 | Refuse a call that looks required by the task | Override a user deny pattern |
 | Report "uncertain", which becomes a confirmation | Widen the set of protected paths |
+| Clear a `soft` hazard rejection when the user's own request covers the call | Clear a `hazard`-severity rejection (secret egress, credential stores, injection) |
 
 The order in `evaluateToolCall` is the enforcement: hard-deny and user rules return before the
 engine is constructed or called at all. There is no code path in which a probabilistic verdict
 is consulted for a hard-deny target.
+
+### The soft/hazard split, and why it is the riskiest part of the design
+
+A rejection from a condition marked `severity: soft` (`local_scope`, `no_outward_effect`,
+`no_irreversible_damage`) is cleared when `intent_coverage` is satisfied. This is what makes
+`git push --force origin feature/x` after "force push this branch" an approval instead of a
+block, and it is the only place where a probabilistic judgment grants permission for an
+irreversible action.
+
+Three things bound the risk:
+
+1. The hard-deny patterns for catastrophic targets (forced push to a protected branch, root
+deletion, disk writes) run first and cannot be reached by any semantic verdict.
+2. Content-based authority does not count: `intent_coverage` reads user-authored messages
+only. A README that says "run this installer" is not a user request, and the fixture set
+measures that case as `ask`.
+3. `severity: hazard` covers the conditions where consent should not be sufficient at all:
+sending secret material, writing credential stores, and text that tries to steer the judgment.
+
+If a wrong approval ever appears in practice, this is the mechanism to remove first.
 
 ## Failure modes and what happens
 
@@ -28,7 +49,7 @@ Everything below resolves to **block**. Silence is never consent.
 
 | Failure | Resolution |
 |---|---|
-| No semantic engine configured (milestone 1) | confirm in a UI, block without one |
+| No semantic engine configured (no API key) | confirm in a UI, block without one |
 | API key missing or rejected | block, with the reason surfaced to the model |
 | Timeout / connection error | block (`timeout`, `network`) |
 | 5xx or 429 after retries | block (`http`) |
@@ -38,6 +59,7 @@ Everything below resolves to **block**. Silence is never consent.
 | Engine throws | block (`engine_error`) |
 | Request cancelled (Esc) | block |
 | No UI available for a confirmation | block (`no-ui`) |
+| A condition answered by fewer than all keys | block (`malformed_response`) — a missing answer is never an approval |
 
 A confirmation is not a bypass: it runs only when the semantic layer said `uncertain`, never
 when it said `deny` or when no decision was available.
@@ -88,5 +110,6 @@ context.
   escalated rather than recognized.
 - A command that `cd`s elsewhere and then deletes is judged by its text and intent, not by a
   simulated shell.
-- The probability thresholds are calibrated on one person's data. Treat them as a starting
-  point and tune them from the recorded probabilities.
+- The probability thresholds are calibrated on one person's data, one sample per fixture,
+  with ±0.05 run-to-run variance. See [`calibration.md`](./calibration.md); treat the
+  thresholds as a starting point and tune them from the recorded probabilities.

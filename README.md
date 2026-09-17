@@ -6,10 +6,11 @@ so a gate either exists as an extension or it does not exist at all. This one ju
 `bash`, `write`, and `edit` tool calls semantically and **fails closed** whenever a decision
 cannot be made.
 
-> **Milestone 1.** The deterministic safety layer, settings, command surface, and decision
-> records are implemented and tested. The JEV engine lands in milestone 2. Until then an
-> escalated call is confirmed in the UI, or blocked when there is no UI — which is
-> deliberately the safe direction. See [`PLAN.md`](./PLAN.md).
+> **Status: milestones 1 and 2 are complete.** The deterministic envelope, the JEV engine,
+> real-API calibration, settings, command surface, and decision records are implemented and
+> tested (107 tests, no network). See [`PLAN.md`](./PLAN.md) for the roadmap and
+> [`docs/calibration.md`](./docs/calibration.md) for the measured probabilities behind every
+> threshold.
 
 ## What it does
 
@@ -20,9 +21,9 @@ The gate has two layers, in this order:
 2. **Semantic judgment (JEV)** — only the calls the first layer escalated.
 
 ```
-hard-deny              → block (never reaches JEV)
-your deny pattern      → block
-your allow pattern     → allow
+hard-deny               → block (never reaches JEV)
+your deny pattern       → block
+your allow pattern      → allow
 safe read-only command  → run, no record
 in-project write/edit   → run, no record
 everything else         → JEV: allow · block · confirm · block-if-undecidable
@@ -31,6 +32,24 @@ everything else         → JEV: allow · block · confirm · block-if-undecidab
 `rm -rf build` inside the repository is recognized as a scoped local deletion. A write to
 `.env`, `.git/`, `~/.ssh`, `.pi/`, `.github/workflows/`, or `AGENTS.md` is escalated even when
 the path is inside the working directory.
+
+### How JEV decides
+
+Conditions are phrased so the safe state is "yes", and each one is classified by
+`mode` and `severity`:
+
+| | meaning |
+|---|---|
+| `mode: required` | must be satisfied; the middle band escalates to a confirmation |
+| `mode: hazard` | only a clear negative matters; the middle band is ignored |
+| `severity: hazard` | a clear rejection always blocks |
+| `severity: soft` | a clear rejection is cleared when the user's own request covers the call |
+
+So `intent_coverage` ("is this what the user asked for?") is the permission question, and
+questions like "is a secret being sent to a network endpoint" are hazard detectors that only
+block when they are sure. Posting a private key is never cleared by intent; force-pushing a
+feature branch the user asked for is. Everything that cannot be decided — no engine, timeout,
+malformed response, cancellation — blocks.
 
 ## Install
 
@@ -49,7 +68,7 @@ pi -e /absolute/path/to/pi-jev-auto-mode
 ## Usage
 
 ```
-/jev-auto-mode            show status
+/jev-auto-mode            show status (settings + whether the semantic layer is usable)
 /jev-auto-mode on|off     toggle auto mode
 /jev-auto-mode policy     list the policy notes
 /jev-auto-mode policy edit
@@ -60,10 +79,16 @@ pi -e /absolute/path/to/pi-jev-auto-mode
 pi --jev-auto-mode        start with auto mode enabled
 ```
 
-The footer shows `🛡 jev <engine> (<scope>)` while the gate is active. Every decision is
-recorded in the transcript as an expandable entry (expand it to see per-condition
-probabilities once the JEV engine lands). Records use `pi.appendEntry`, so they never enter
-the model's context: the model cannot argue with the gate using its own past rationales.
+Requires `TYPESAFE_API_KEY` ([console.typesafe.ai](https://console.typesafe.ai/)). Without it
+the gate does not disable itself: it falls back to the ask-only engine, which confirms in a UI
+and blocks when there is none. `TYPESAFE_DEFAULT_MODEL` selects the model (default
+`jev-latest`).
+
+The footer shows `🛡 jev (<scope>)` while the semantic layer is active, and
+`🛡 jev ask-only (<scope>)` when it is not. Every decision is recorded in the transcript as an
+expandable entry — expand it to see per-condition probabilities, the resolved model, and
+token usage. Records use `pi.appendEntry`, so they never enter the model's context: the model
+cannot argue with the gate using its own past rationales.
 
 ## Configuration
 
@@ -112,6 +137,7 @@ Details and the failure-mode table: [`docs/security.md`](./docs/security.md).
 npm install
 npm test          # node:test, no network
 npm run typecheck
+node --experimental-strip-types scripts/calibrate.ts   # real API, needs TYPESAFE_API_KEY
 ```
 
 Layout:
@@ -122,7 +148,11 @@ Layout:
 | `src/call.ts` | `tool_call` → judgment state (redaction, truncation, path classification) |
 | `src/intent.ts` | recent user-authored intent only |
 | `src/decide.ts` | the decision-engine seam (`DecisionEngine`) |
-| `src/jev/` | JEV transport, question set, response validation, probability mapping (M2) |
+| `src/jev/questions.ts` | the condition set, modes, severities, thresholds |
+| `src/jev/decide.ts` | probability → condition verdict → decision |
+| `src/jev/engine.ts` | one request per call, budget guard, calibration hook |
+| `src/jev/transport.ts` | the SDK, wrapped so failures become decisions |
+| `src/jev/response.ts` | response re-validation (a 200 is not an answer) |
 | `src/settings.ts` | global/project settings and policy notes |
 | `src/records.ts` | `appendEntry` records and their renderer |
 | `src/ui.ts` | footer status and user-facing text |

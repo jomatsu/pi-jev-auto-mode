@@ -100,7 +100,9 @@ async function setup() {
   const cwd = join(dir, "project");
   const store = new JevAutoModeStore({ agentDir: join(dir, "agent"), configDirName: ".pi" });
   const harness = createFakePi();
-  register(harness.api, { store, now: () => 1 });
+  // An explicit empty environment keeps the engine choice deterministic: without
+  // a key the gate runs the ask-only engine.
+  register(harness.api, { store, now: () => 1, env: {} });
   return { cwd, store, harness };
 }
 
@@ -161,7 +163,7 @@ describe("command wiring", () => {
     assert.match(harness.notifications.at(-1)?.message ?? "", /disabled/);
   });
 
-  it("reports the active settings", async () => {
+  it("reports the active settings and the semantic layer state", async () => {
     const { cwd, harness } = await setup();
     const command = harness.commands.get(AUTO_MODE_COMMAND);
     assert.ok(command);
@@ -169,6 +171,7 @@ describe("command wiring", () => {
     await command.handler("status", createContext(harness, cwd));
     const message = harness.notifications.at(-1)?.message ?? "";
     assert.match(message, /ask-only/);
+    assert.match(message, /semantic layer: unavailable \(TYPESAFE_API_KEY is not set\)/);
     assert.match(message, new RegExp(`max state characters: ${DEFAULT_SETTINGS.maxStateCharacters}`));
   });
 });

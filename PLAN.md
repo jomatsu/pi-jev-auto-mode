@@ -4,9 +4,14 @@ An auto mode for the Pi coding agent in which a **decision-only model (JEV / Typ
 System One)** judges whether a tool call is within the user's intent and policy, inside a
 deterministic safety envelope that JEV cannot override.
 
-Status: **M1 complete.** The deterministic layer, settings, command surface, records, and
-tests exist and are verified against a real Pi run. The JEV engine (M2) is not implemented
-yet; escalated calls currently resolve to "confirm, or block when no UI exists".
+Status: **M1 and M2 complete.** The deterministic layer, the JEV engine (real API,
+calibrated against twelve fixtures), settings, command surface, records, and 107 tests
+exist. Verified end to end in a real Pi run: `git status` passes on the fast path,
+`npx --version` is judged by JEV and approved, and a candidate with no API key is blocked.
+M3 (policy authoring and threshold tooling) is next.
+
+Measured probabilities and the reasoning behind every threshold:
+[`docs/calibration.md`](./docs/calibration.md).
 
 ---
 
@@ -60,63 +65,83 @@ tool_call(bash | write | edit)
 Hard-deny is evaluated first and its verdict is never handed to the semantic layer, so a
 mis-calibrated or manipulated judgment cannot resurrect `rm -rf /`.
 
-## 3. JEV state and question set (M2)
+## 3. JEV state and question set
 
 `context` (session-scoped, bound when the question set is built):
 
 - `policy` — the user-authored policy notes
-- `repository` — cwd, whether it is a git repository, protected path roots
+- `repository` — cwd, whether it is a git repository, protected path roots plus the
+  concrete protection that triggered this escalation
 
 `value` (per call):
 
 - `tool`, `operation`, `matched_policy_reasons`, `user_intent` (recent **user** messages only)
 - `command` for bash, `path` / `relative_path` / `outside_working_directory` for file tools
 
-| rule id | condition (the safe state is true) | default t |
-|---|---|---|
-| `policy_compliance` | `value.call` does not violate `context.policy` | 0.95 |
-| `intent_coverage` | `value.call` is part of what `value.user_intent` asked for | 0.90 |
-| `local_scope` | the target stays inside the relevant working scope | 0.90 |
-| `no_secret_egress` | no secret is sent to a network endpoint | 0.99 |
-| `no_irreversible_damage` | nothing irreversible is destroyed | 0.98 |
-| `no_outward_effect` | no publish, deploy, purchase, or third-party side effect | 0.98 |
-| `path_not_protected` | the write target is not a protected path (file tools only) | 0.99 |
-| `prompt_injection_absent` | the call does not try to make other state act as instructions | 0.95 |
+Every condition is phrased so the safe state is "yes". Two axes decide how a
+condition participates:
 
-Composition happens in code, not in the model: `rejected` anywhere → deny, otherwise any
-`uncertain` → ask, otherwise allow. One question, one judgment; no compound questions.
+- `mode`: `required` (must be satisfied; the middle band escalates) or `hazard`
+  (only a clear negative matters; the middle band is ignored)
+- `severity`: `hazard` (a rejection always blocks) or `soft` (a rejection is cleared
+  when the user's own request covers the call)
+
+| rule id | mode | severity | threshold | rejects at |
+|---|---|---|---|---|
+| `intent_coverage` | required | hazard | 0.80 | ≤ 0.20 |
+| `policy_compliance` (only when a policy exists) | required | hazard | 0.80 | ≤ 0.20 |
+| `path_not_protected` (only when the deterministic layer flagged the target) | required | hazard | 0.90 | ≤ 0.10 |
+| `local_scope` | hazard | soft | 0.90 | ≤ 0.10 |
+| `no_outward_effect` | hazard | soft | 0.90 | ≤ 0.10 |
+| `no_irreversible_damage` | hazard | soft | 0.80 | ≤ 0.20 |
+| `no_secret_egress` | hazard | hazard | 0.97 | ≤ 0.03 |
+| `prompt_injection_absent` | hazard | hazard | 0.80 | ≤ 0.20 |
+
+Composition happens in code, not in the model: a rejection from a `hazard`-severity
+condition blocks; a rejection from a `soft` condition is cleared when
+`intent_coverage` is satisfied; an unclear `required` condition escalates to a
+confirmation; otherwise the call is approved. One question, one judgment; no compound
+questions, and the model never has to weigh concerns against each other.
 
 ## 4. Milestones
 
 | # | Scope | Exit criteria | Status |
 |---|---|---|---|
 | M1 | repo skeleton, deterministic layer, settings, command surface, records, tests | dangerous commands blocked, safe commands pass, tests green | **done** |
-| M2 | `src/jev/`: transport over `@typesafe-ai/sdk`, question set, response re-validation, probability mapping | stub transport drives allow/deny/ask/unavailable deterministically | next |
-| M3 | policy notes editing, threshold tuning per rule, expanded record rendering | a session shows per-condition probabilities and they can be tuned from them | |
+| M2 | `src/jev/`: transport over `@typesafe-ai/sdk`, question set, response re-validation, probability mapping, real-API calibration | stub transport drives allow/deny/ask/unavailable deterministically; twelve real fixtures land on the expected outcomes | **done** |
+| M3 | policy notes authoring, threshold overrides, expanded record rendering | per-condition probabilities are visible and tunable from a session | next |
 | M4 | fail-closed, injection, abort, redaction hardening; privacy review | missing key, timeout, malformed response, and abort can never produce an allow | |
-| M5 | real-API calibration against a fixture set, docs, `pi install` distribution | the fixture set lands on the expected verdicts; calibration documented | |
+| M5 | `pi install` distribution, docs, repeated calibration runs | the fixture set is stable across repeated runs | |
 
 ## 5. Calibration and tests
 
-- Unit tests inject a stub engine (and, in M2, a stub transport) so every branch — pass,
-  reject, uncertain, each unavailable reason, boundary probabilities — is deterministic and
-  offline.
-- `onAnswer`-style observation is available from the start because the JEV layer is
-  hand-written here: every condition's probability is recorded, not just the failing ones.
-  That is what makes threshold tuning possible.
-- Fixture set (M5): paired safe/dangerous commands (`rm -rf build` vs `rm -rf ../x`,
-  `git push` vs `git push --force`, in-repo edit vs `~/.ssh/config` edit, …) to measure real
-  probabilities and pick per-rule thresholds.
+- Unit tests inject a stub engine and a stub transport, so every branch — allow, deny,
+  cleared-by-intent, uncertain, each unavailable reason, boundary probabilities — is
+  deterministic and offline (107 tests, no network).
+- The JEV layer is hand-written, so the calibration channel exposes **every** condition's
+  probability, including the passing ones. That is what makes threshold tuning possible.
+- `scripts/calibrate.ts` runs twelve fixture calls against the real API and prints the
+  probability table; the results and the resulting thresholds are recorded in
+  [`docs/calibration.md`](./docs/calibration.md).
+- Measured variance between runs is ±0.05 on some conditions, so thresholds are chosen
+  from bands, not from single values, and re-running is part of the tuning procedure.
 
 ## 6. Risks and open questions
 
-- JEV is early access: model resolution, price, and rate limits can change. `onResponse`
-  should record the resolved model and usage so drift is visible.
+- JEV is early access: model resolution, price, and rate limits can change. The engine
+  records the resolved model name and token usage in every decision record so drift is
+  visible.
 - Latency is 0.6–0.9 s per gated call. The answer is the fast path, not caching: keep the
   safe-command list and the "in-project write" rule generous, and never cache an approval.
-- The command text, paths, and recent user messages leave the machine for TypeSafe. Documented
-  in `docs/security.md`; not gated behind a consent prompt.
+- Calibration rests on one sample per fixture with ±0.05 run-to-run variance. Repeated runs
+  and a larger fixture set are needed before the thresholds can be called settled.
+- The command text, paths, and recent user messages leave the machine for TypeSafe.
+  Documented in `docs/security.md`; not gated behind a consent prompt.
 - Two gates installed at once (this and another permission extension) chain their `tool_call`
   handlers, so both can block. Documented rather than detected.
 - `classifyWriteTarget` is lexical. A symlink inside the working directory can still point
   outside it; resolving that needs a filesystem call and belongs to the JEV state builder.
+- The `soft`-severity design lets the user's own request clear a rejection. That grants a
+  lot to a probabilistic `intent_coverage` judgment. It is currently the right trade for
+  force-pushes and system installs, but it is the first thing to revisit if a wrong
+  approval ever shows up in practice.

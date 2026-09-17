@@ -23,6 +23,13 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { buildGatedCall, type GatedCall, type RepoFacts, type ToolCallEventLike } from "./call.ts";
 import { createManualEngine, type CandidateInput, type DecisionEngine, type EngineEvidence, type EngineVerdict } from "./decide.ts";
+import {
+  createJevEngine,
+  createSdkTransport,
+  describeJevAvailability,
+  type Observation,
+  type ObservationMeta,
+} from "./jev/index.ts";
 import { extractRecentIntent } from "./intent.ts";
 import {
   dangerousReasons,
@@ -93,11 +100,19 @@ function conversationBranch(ctx: GateContext): readonly unknown[] {
   return Array.isArray(branch) ? branch : [];
 }
 
-export function repoFacts(cwd: string): RepoFacts {
+export function repoFacts(cwd: string, call?: GatedCall): RepoFacts {
+  // The concrete protection that triggered escalation is listed alongside the
+  // configured roots, so a question about protected locations can be answered
+  // against the actual target rather than a generic path list.
+  const protectedPaths = unique([
+    ...PROTECTED_DIRECTORY_SEGMENTS,
+    ...(call?.protectedReason ? [call.protectedReason] : []),
+  ]);
+
   return {
     cwd,
     isGitRepository: existsSync(join(cwd, ".git")),
-    protectedPaths: PROTECTED_DIRECTORY_SEGMENTS,
+    protectedPaths,
   };
 }
 
@@ -209,7 +224,7 @@ export async function evaluateToolCall(
     reasons,
     intent: extractRecentIntent(conversationBranch(ctx)),
     policy: state.policyNotes,
-    repo: repoFacts(ctx.cwd),
+    repo: repoFacts(ctx.cwd, call),
   };
 
   let verdict: EngineVerdict;
@@ -314,21 +329,52 @@ export async function evaluateToolCall(
 }
 
 export interface RegisterOptions {
+  /** Override the engine (tests, or a different judgment backend). */
   readonly engine?: DecisionEngine;
   readonly store?: JevAutoModeStore;
   readonly record?: DecisionRecorder;
   readonly now?: () => number;
+  /** Transport override, mainly for tests. */
+  readonly fetch?: (input: string, init?: RequestInit) => Promise<Response>;
+  readonly env?: NodeJS.ProcessEnv;
+  /** Calibration channel: every condition of every judgment. */
+  readonly onObservation?: (observations: readonly Observation[], meta: ObservationMeta) => void;
+}
+
+/**
+ * Build the semantic engine for the current settings.
+ *
+ * Without an API key the gate keeps working with the ask-only engine rather than
+ * dropping to "allow": the degradation stays visible and stays closed.
+ */
+export function createEngine(settings: JevAutoModeSettings, options: RegisterOptions = {}): DecisionEngine {
+  if (options.engine) return options.engine;
+
+  const availability = describeJevAvailability(options.env ?? process.env);
+  if (!availability.available || !availability.apiKey) return createManualEngine();
+
+  return createJevEngine({
+    transport: createSdkTransport({
+      apiKey: availability.apiKey,
+      timeoutMs: settings.timeoutMs,
+      maxRetries: settings.maxRetries,
+      ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+    }),
+    model: availability.model,
+    maxStateCharacters: settings.maxStateCharacters,
+    ...(options.onObservation === undefined ? {} : { onObservation: options.onObservation }),
+  });
 }
 
 export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void {
   const store =
     options.store ?? new JevAutoModeStore({ agentDir: getAgentDir(), configDirName: CONFIG_DIR_NAME });
-  const deps: DecisionDeps = {
-    engine: options.engine ?? createManualEngine(),
+  const state = createInitialState();
+  let deps: DecisionDeps = {
+    engine: createEngine(state.settings, options),
     record: options.record ?? createRecorder(pi),
     now: options.now ?? (() => Date.now()),
   };
-  const state = createInitialState();
   let loaded = false;
 
   const refresh = async (ctx: GateContext, applyFlag: boolean): Promise<void> => {
@@ -340,6 +386,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
     if (applyFlag && pi.getFlag(AUTO_MODE_FLAG) === true) {
       state.settings = { ...state.settings, enabled: true };
     }
+    deps = { ...deps, engine: createEngine(state.settings, options) };
     loaded = true;
     updateStatus(ctx, { enabled: state.settings.enabled, engineId: deps.engine.id, scope: state.scope });
   };
@@ -363,11 +410,19 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
       if (!loaded) await refresh(gateContext, true);
 
       const value = String(args ?? "").trim();
-      const status = `${statusText({
-        enabled: state.settings.enabled,
-        engineId: deps.engine.id,
-        scope: state.scope,
-      })}\n\n${describeSettings(state.settings, state.scope)}`;
+      const availability = describeJevAvailability(options.env ?? process.env);
+      const status = [
+        statusText({
+          enabled: state.settings.enabled,
+          engineId: deps.engine.id,
+          scope: state.scope,
+        }),
+        "",
+        describeSettings(state.settings, state.scope),
+        availability.available
+          ? `semantic layer: ${availability.model}`
+          : `semantic layer: unavailable (${availability.reason ?? "unknown reason"})`,
+      ].join("\n");
 
       if (value === "" || value === "status") {
         ctx.ui.notify(status, "info");
