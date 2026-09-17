@@ -174,4 +174,59 @@ describe("command wiring", () => {
     assert.match(message, /semantic layer: unavailable \(TYPESAFE_API_KEY is not set\)/);
     assert.match(message, new RegExp(`max state characters: ${DEFAULT_SETTINGS.maxStateCharacters}`));
   });
+
+  it("persists a threshold override and shows the tuning table", async () => {
+    const { cwd, store, harness } = await setup();
+    const command = harness.commands.get(AUTO_MODE_COMMAND);
+    assert.ok(command);
+
+    await harness.handlers.get("session_start")?.[0]?.({}, createContext(harness, cwd));
+    await command.handler("threshold intent_coverage 0.6", createContext(harness, cwd));
+
+    const saved = await store.loadSettings(cwd, true);
+    assert.equal(saved.settings.thresholds.intent_coverage, 0.6);
+
+    const message = harness.notifications.at(-1)?.message ?? "";
+    assert.match(message, /requires p >= 0\.60/);
+    assert.match(message, /intent_coverage\s+required\s+hazard\s+0\.60 override/);
+  });
+
+  it("lists the thresholds without changing them", async () => {
+    const { cwd, store, harness } = await setup();
+    const command = harness.commands.get(AUTO_MODE_COMMAND);
+    assert.ok(command);
+
+    await command.handler("threshold", createContext(harness, cwd));
+    assert.match(harness.notifications.at(-1)?.message ?? "", /no_secret_egress/);
+    assert.deepEqual((await store.loadSettings(cwd, true)).settings.thresholds, {});
+  });
+
+  it("refuses an out-of-range value and an unknown rule", async () => {
+    const { cwd, store, harness } = await setup();
+    const command = harness.commands.get(AUTO_MODE_COMMAND);
+    assert.ok(command);
+
+    await command.handler("threshold intent_coverage 0.4", createContext(harness, cwd));
+    assert.match(harness.notifications.at(-1)?.message ?? "", /greater than 0\.5/);
+    assert.equal(harness.notifications.at(-1)?.type, "error");
+
+    await command.handler("threshold nope 0.9", createContext(harness, cwd));
+    assert.match(harness.notifications.at(-1)?.message ?? "", /Unknown rule/);
+
+    assert.deepEqual((await store.loadSettings(cwd, true)).settings.thresholds, {});
+  });
+
+  it("resets one override and all overrides", async () => {
+    const { cwd, store, harness } = await setup();
+    const command = harness.commands.get(AUTO_MODE_COMMAND);
+    assert.ok(command);
+
+    await command.handler("threshold intent_coverage 0.6", createContext(harness, cwd));
+    await command.handler("threshold local_scope 0.95", createContext(harness, cwd));
+    await command.handler("threshold reset intent_coverage", createContext(harness, cwd));
+    assert.deepEqual((await store.loadSettings(cwd, true)).settings.thresholds, { local_scope: 0.95 });
+
+    await command.handler("threshold reset", createContext(harness, cwd));
+    assert.deepEqual((await store.loadSettings(cwd, true)).settings.thresholds, {});
+  });
 });

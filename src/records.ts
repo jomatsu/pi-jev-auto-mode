@@ -8,7 +8,7 @@
 
 import { Box, Text } from "@earendil-works/pi-tui";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { DecisionSource } from "./decide.ts";
+import type { ConditionReport, DecisionSource } from "./decide.ts";
 
 export const DECISION_ENTRY_TYPE = "jev-auto-mode-decision";
 
@@ -19,6 +19,10 @@ export interface DecisionRecord {
   readonly status: "allowed" | "blocked" | "confirmed" | "cancelled";
   readonly source: DecisionSource;
   readonly rationale: string;
+  /** One entry per condition that was asked, in the order they were asked. */
+  readonly conditions?: readonly ConditionReport[];
+  readonly decidingRule?: string;
+  readonly clearedByIntent?: readonly string[];
   readonly probabilities?: Readonly<Record<string, number>>;
   readonly model?: string;
   readonly latencyMs?: number;
@@ -46,16 +50,38 @@ const STATUS_LABEL: Record<DecisionRecord["status"], string> = {
 
 export function formatDecisionLine(record: DecisionRecord): string {
   const parts = [`${record.tool}: ${STATUS_LABEL[record.status]}`, `via ${record.source}`];
+  if (record.decidingRule) parts.push(`decided by ${record.decidingRule}`);
   if (record.model) parts.push(record.model);
   if (typeof record.latencyMs === "number") parts.push(`${Math.round(record.latencyMs)}ms`);
   return parts.join(" · ");
 }
 
-export function formatProbabilities(probabilities: Readonly<Record<string, number>> | undefined): string[] {
-  if (!probabilities) return [];
-  return Object.entries(probabilities)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([ruleId, probability]) => `${ruleId}: ${probability.toFixed(3)}`);
+const VERDICT_MARK: Record<ConditionReport["verdict"], string> = {
+  satisfied: "pass",
+  rejected: "reject",
+  uncertain: "unclear",
+  ignored: "ignored",
+};
+
+/**
+ * One line per condition, with the band it landed in and the threshold it was
+ * compared against. This is the view used to decide whether a threshold needs to
+ * move, so it shows the passing values too.
+ */
+export function formatConditionLines(record: DecisionRecord): string[] {
+  return (record.conditions ?? []).map((condition) => {
+    const bounds =
+      condition.verdict === "satisfied"
+        ? `>= ${condition.threshold.toFixed(2)}`
+        : condition.verdict === "rejected"
+          ? `<= ${(1 - condition.threshold).toFixed(2)}`
+          : `${(1 - condition.threshold).toFixed(2)}-${condition.threshold.toFixed(2)}`;
+    const marks = [
+      record.decidingRule === condition.ruleId ? "<- decided" : "",
+      condition.clearedByIntent ? "(cleared by the user's request)" : "",
+    ].filter(Boolean);
+    return `${condition.ruleId}  p=${condition.probability.toFixed(2)}  ${VERDICT_MARK[condition.verdict]} (t=${condition.threshold.toFixed(2)}, ${bounds}) ${marks.join(" ")}`.trimEnd();
+  });
 }
 
 export function registerDecisionEntryRenderer(pi: Pick<ExtensionAPI, "registerEntryRenderer">): void {
@@ -80,7 +106,7 @@ export function registerDecisionEntryRenderer(pi: Pick<ExtensionAPI, "registerEn
     box.addChild(new Text(theme.fg("dim", `rationale: ${record.rationale}`)));
 
     if (options.expanded) {
-      for (const line of formatProbabilities(record.probabilities)) {
+      for (const line of formatConditionLines(record)) {
         box.addChild(new Text(theme.fg("dim", line)));
       }
       box.addChild(new Text(theme.fg("dim", JSON.stringify(record, null, 2))));

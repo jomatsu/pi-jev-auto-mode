@@ -21,6 +21,13 @@ export interface JevAutoModeSettings {
   readonly extraProtectedPaths: readonly string[];
   /** Shared state + questions budget guard, in characters. */
   readonly maxStateCharacters: number;
+  /**
+   * Per-rule probability thresholds, overriding the calibrated defaults.
+   *
+   * Keys are rule ids. An unknown key is kept but has no effect, so a typo is
+   * visible in `/jev-auto-mode threshold` instead of silently resetting the rule.
+   */
+  readonly thresholds: Readonly<Record<string, number>>;
 }
 
 export type SettingsScope = "global" | "project";
@@ -35,14 +42,21 @@ export const DEFAULT_SETTINGS: JevAutoModeSettings = {
   disallowedCommands: [],
   extraProtectedPaths: [],
   maxStateCharacters: 120_000,
+  thresholds: {},
 };
 
 const MAX_PATTERN_ENTRIES = 200;
 const MAX_PATTERN_LENGTH = 300;
+const MAX_THRESHOLD_ENTRIES = 32;
+const MAX_RULE_ID_LENGTH = 64;
 const MAX_POLICY_NOTES_LENGTH = 8000;
 const MIN_TIMEOUT_MS = 250;
 const MAX_TIMEOUT_MS = 60_000;
 const MAX_RETRIES = 5;
+
+/** A probability threshold must leave a middle band on both sides. */
+export const MIN_THRESHOLD = 0.5;
+export const MAX_THRESHOLD = 1;
 
 export interface StoreOptions {
   /** Usually `~/.pi/agent`, honoring `PI_CODING_AGENT_DIR`. */
@@ -53,8 +67,28 @@ export interface StoreOptions {
 
 export type SettingsPatch = { -readonly [K in keyof JevAutoModeSettings]?: JevAutoModeSettings[K] };
 
-function readBoolean(value: unknown, fallback: boolean): boolean {
-  return typeof value === "boolean" ? value : fallback;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Validate a single threshold value. Returns `undefined` when it is not usable. */
+export function parseThreshold(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  if (value <= MIN_THRESHOLD || value > MAX_THRESHOLD) return undefined;
+  return value;
+}
+
+function readThresholds(value: unknown): Readonly<Record<string, number>> | undefined {
+  if (!isRecord(value)) return undefined;
+  const thresholds: Record<string, number> = {};
+  for (const [ruleId, raw] of Object.entries(value)) {
+    if (ruleId.length === 0 || ruleId.length > MAX_RULE_ID_LENGTH) continue;
+    const threshold = parseThreshold(raw);
+    if (threshold === undefined) continue;
+    thresholds[ruleId] = threshold;
+    if (Object.keys(thresholds).length >= MAX_THRESHOLD_ENTRIES) break;
+  }
+  return thresholds;
 }
 
 function readBoundedInteger(value: unknown, min: number, max: number): number | undefined {
@@ -107,11 +141,20 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
     record.extraProtectedPaths === undefined ? undefined : readStringArray(record.extraProtectedPaths);
   if (extraProtectedPaths !== undefined) patch.extraProtectedPaths = extraProtectedPaths;
 
+  const thresholds = record.thresholds === undefined ? undefined : readThresholds(record.thresholds);
+  if (thresholds !== undefined) patch.thresholds = thresholds;
+
   return patch;
 }
 
 export function mergeSettings(base: JevAutoModeSettings, patch: SettingsPatch): JevAutoModeSettings {
-  return { ...base, ...patch };
+  const merged = { ...base, ...patch };
+  // Thresholds merge per rule: a project file that retunes one condition must not
+  // wipe the global overrides for the others.
+  if (patch.thresholds !== undefined) {
+    merged.thresholds = { ...base.thresholds, ...patch.thresholds };
+  }
+  return merged;
 }
 
 async function readJsonFile(path: string): Promise<unknown> {

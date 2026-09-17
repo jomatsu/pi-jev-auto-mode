@@ -38,7 +38,15 @@ export interface Observation {
   readonly ruleId: string;
   readonly probability: number;
   readonly threshold: number;
+  /** The band the probability falls into. */
   readonly verdict: ConditionVerdict;
+  /**
+   * What the rule's mode makes of that band. A `hazard` rule that lands in the
+   * middle band is treated as satisfied, because "no hazard is evident" is not
+   * the same as "a hazard is present". Kept separate from `verdict` so the
+   * distinction stays visible in records.
+   */
+  readonly effective: ConditionVerdict;
 }
 
 export function classifyCondition(probability: number, threshold: number): ConditionVerdict {
@@ -52,9 +60,9 @@ export function observe(rules: readonly JevRule[], answers: Readonly<Record<stri
     // A missing answer must not become an approval. The engine rejects a response
     // with missing keys before reaching here; defaulting to 0 means "rejected".
     const probability = answers[rule.id] ?? 0;
-    const classified = classifyCondition(probability, rule.threshold);
-    const verdict = rule.mode === "hazard" && classified === "uncertain" ? "satisfied" : classified;
-    return { ruleId: rule.id, probability, threshold: rule.threshold, verdict };
+    const verdict = classifyCondition(probability, rule.threshold);
+    const effective = rule.mode === "hazard" && verdict === "uncertain" ? "satisfied" : verdict;
+    return { ruleId: rule.id, probability, threshold: rule.threshold, verdict, effective };
   });
 }
 
@@ -62,6 +70,8 @@ export interface CombinedDecision {
   readonly verdict: "allow" | "deny" | "uncertain";
   readonly rationale: string;
   readonly probabilities: Readonly<Record<string, number>>;
+  /** The condition that decided the call, when one did. */
+  readonly decidingRule: string | undefined;
   /** Rules whose clear rejection was cleared by the user's own request. */
   readonly clearedByIntent: readonly string[];
 }
@@ -94,7 +104,7 @@ export function combine(rules: readonly JevRule[], observations: readonly Observ
   const severityOf = (observation: Observation): JevRule["severity"] =>
     rules.find((rule) => rule.id === observation.ruleId)?.severity ?? "hazard";
 
-  const rejected = observations.filter((observation) => observation.verdict === "rejected");
+  const rejected = observations.filter((observation) => observation.effective === "rejected");
   const blocking = rejected.filter((observation) => severityOf(observation) === "hazard");
   if (blocking.length > 0) {
     const first = blocking[0] as Observation;
@@ -103,12 +113,13 @@ export function combine(rules: readonly JevRule[], observations: readonly Observ
       verdict: "deny",
       rationale: `${rule?.denyMessage ?? "A safety condition was clearly violated."} ${describe(rules, first)}`,
       probabilities,
+      decidingRule: first.ruleId,
       clearedByIntent: [],
     };
   }
 
   const intentSatisfied = observations.some(
-    (observation) => observation.ruleId === INTENT_RULE_ID && observation.verdict === "satisfied",
+    (observation) => observation.ruleId === INTENT_RULE_ID && observation.effective === "satisfied",
   );
 
   const soft = rejected.filter((observation) => severityOf(observation) === "soft");
@@ -120,6 +131,7 @@ export function combine(rules: readonly JevRule[], observations: readonly Observ
         verdict: "deny",
         rationale: `${rule?.denyMessage ?? "A safety condition was clearly violated."} ${describe(rules, first)}`,
         probabilities,
+        decidingRule: first.ruleId,
         clearedByIntent: [],
       };
     }
@@ -127,11 +139,12 @@ export function combine(rules: readonly JevRule[], observations: readonly Observ
       verdict: "allow",
       rationale: `The user's request covers this call, clearing ${describe(rules, first)}.`,
       probabilities,
+      decidingRule: first.ruleId,
       clearedByIntent: soft.map((observation) => observation.ruleId),
     };
   }
 
-  const uncertain = observations.filter((observation) => observation.verdict === "uncertain");
+  const uncertain = observations.filter((observation) => observation.effective === "uncertain");
   const firstUncertain = uncertain[0];
   if (firstUncertain) {
     const rule = rules.find((candidate) => candidate.id === firstUncertain.ruleId);
@@ -139,6 +152,7 @@ export function combine(rules: readonly JevRule[], observations: readonly Observ
       verdict: "uncertain",
       rationale: `${rule?.uncertainMessage ?? "A safety condition could not be decided."} ${describe(rules, firstUncertain)}`,
       probabilities,
+      decidingRule: firstUncertain.ruleId,
       clearedByIntent: [],
     };
   }
@@ -155,6 +169,7 @@ export function combine(rules: readonly JevRule[], observations: readonly Observ
         ? "No safety conditions applied."
         : `No hazard was evident across ${observations.length} conditions (lowest p=${formatProbability(lowest.probability)} on ${lowest.ruleId}).`,
     probabilities,
+    decidingRule: undefined,
     clearedByIntent: [],
   };
 }

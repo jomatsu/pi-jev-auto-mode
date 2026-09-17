@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildGatedCall, type GatedCall, type RepoFacts } from "../src/call.ts";
 import type { CandidateInput } from "../src/decide.ts";
-import { DEFAULT_RULES, buildQuestions, rulesForTool, type JevRule } from "../src/jev/questions.ts";
+import { DEFAULT_RULES, applyThresholdOverrides, buildQuestions, ruleById, rulesForTool, type JevRule } from "../src/jev/questions.ts";
 import { classifyCondition, combine, observe } from "../src/jev/decide.ts";
 import { parseAnswers } from "../src/jev/response.ts";
 import { createJevEngine } from "../src/jev/engine.ts";
@@ -77,20 +77,31 @@ describe("condition classification", () => {
     assert.equal(classifyCondition(0.03, 0.97), "rejected");
   });
 
-  it("ignores the middle band for hazard-mode conditions", () => {
+  it("keeps the raw band and the effective verdict apart for hazard-mode conditions", () => {
     // An absence-of-hazard question answering 0.7 means "no hazard is evident",
-    // not "a hazard is present", so it must not escalate.
-    assert.deepEqual(observe([SOFT], { no_outward_effect: 0.7 })[0]?.verdict, "satisfied");
-    assert.deepEqual(observe([HARD], { no_secret_egress: 0.7 })[0]?.verdict, "satisfied");
-    assert.deepEqual(observe([REQUIRED], { intent_coverage: 0.7 })[0]?.verdict, "uncertain");
+    // not "a hazard is present", so it must not escalate. The raw band is kept so
+    // records can show that it was ignored rather than passed.
+    const soft = observe([SOFT], { no_outward_effect: 0.7 })[0];
+    assert.equal(soft?.verdict, "uncertain");
+    assert.equal(soft?.effective, "satisfied");
+
+    const hard = observe([HARD], { no_secret_egress: 0.7 })[0];
+    assert.equal(hard?.verdict, "uncertain");
+    assert.equal(hard?.effective, "satisfied");
+
+    const required = observe([REQUIRED], { intent_coverage: 0.7 })[0];
+    assert.equal(required?.verdict, "uncertain");
+    assert.equal(required?.effective, "uncertain");
   });
 
   it("still rejects a hazard-mode condition on a clear negative", () => {
-    assert.deepEqual(observe([SOFT], { no_outward_effect: 0.05 })[0]?.verdict, "rejected");
+    const observation = observe([SOFT], { no_outward_effect: 0.05 })[0];
+    assert.equal(observation?.verdict, "rejected");
+    assert.equal(observation?.effective, "rejected");
   });
 
   it("treats a missing answer as a rejection rather than an approval", () => {
-    assert.deepEqual(observe([SOFT], {})[0]?.verdict, "rejected");
+    assert.deepEqual(observe([SOFT], {})[0]?.effective, "rejected");
   });
 });
 
@@ -385,6 +396,46 @@ describe("engine", () => {
     assert.equal(verdict.verdict, "unavailable");
     assert.equal(verdict.verdict === "unavailable" && verdict.reason, "state_too_large");
     assert.deepEqual(requests, [], "the request must not be sent when it cannot fit");
+  });
+});
+
+describe("threshold overrides", () => {
+  it("replaces only the named rules", () => {
+    const rules = applyThresholdOverrides(DEFAULT_RULES, { intent_coverage: 0.6 });
+    assert.equal(ruleById("intent_coverage", rules)?.threshold, 0.6);
+    assert.equal(ruleById("local_scope", rules)?.threshold, ruleById("local_scope")?.threshold);
+  });
+
+  it("ignores ids that match no rule and keeps the original array when empty", () => {
+    assert.equal(applyThresholdOverrides(DEFAULT_RULES, {}), DEFAULT_RULES);
+    const rules = applyThresholdOverrides(DEFAULT_RULES, { nonsense: 0.7 });
+    assert.deepEqual(
+      rules.map((rule) => rule.threshold),
+      DEFAULT_RULES.map((rule) => rule.threshold),
+    );
+  });
+
+  it("changes the decision a probability leads to", async () => {
+    // 0.65 sits in the middle band under the calibrated 0.80 and passes under 0.60.
+    const probabilities = { ...satisfiedFor("bash"), intent_coverage: 0.65 };
+    const { transport } = stubTransport({ ok: true, response: answerBody(probabilities) });
+
+    const strict = createJevEngine({ transport });
+    assert.equal((await strict.judge(candidate(bashCall("git reset --hard HEAD~1")), {})).verdict, "uncertain");
+
+    const loosened = createJevEngine({ transport, thresholds: { intent_coverage: 0.6 } });
+    assert.equal((await loosened.judge(candidate(bashCall("git reset --hard HEAD~1")), {})).verdict, "allow");
+  });
+
+  it("reports the effective thresholds alongside the probabilities", async () => {
+    const { transport } = stubTransport({ ok: true, response: answerBody(satisfiedFor("bash")) });
+    const engine = createJevEngine({ transport, thresholds: { local_scope: 0.99 } });
+    const verdict = await engine.judge(candidate(bashCall("git reset --hard HEAD~1")), {});
+
+    assert.equal(verdict.thresholds?.local_scope, 0.99);
+    const condition = verdict.conditions?.find((entry) => entry.ruleId === "local_scope");
+    assert.equal(condition?.threshold, 0.99);
+    assert.equal(condition?.verdict, "satisfied");
   });
 });
 

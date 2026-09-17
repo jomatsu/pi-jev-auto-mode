@@ -98,3 +98,12 @@ cannot (sending a private key anywhere, writing a credential store).
    If the two bands overlap, the question is badly phrased — rewrite it rather than
    moving the threshold.
 4. Record the run in this file.
+
+## Tuning without the script
+
+The same numbers arrive in every session. Expand a decision record in the transcript to see
+the per-condition table (probability, band, threshold), and run `/jev-auto-mode threshold` to
+see the current thresholds next to the last observed probability per rule. Overrides set there
+persist in the global settings file and take effect immediately, so tuning does not require
+editing code — but a change that survives should still be reflected here, because a threshold
+that only exists in one machine's settings file is invisible to everyone else.

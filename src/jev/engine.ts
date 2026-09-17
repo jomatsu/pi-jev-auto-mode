@@ -10,9 +10,9 @@
  */
 
 import { toJevState, NO_POLICY_PLACEHOLDER } from "../call.ts";
-import type { CandidateInput, DecisionEngine, EngineVerdict, JudgeOptions } from "../decide.ts";
+import type { CandidateInput, ConditionReport, DecisionEngine, EngineVerdict, JudgeOptions } from "../decide.ts";
 import { combine, observe, type Observation } from "./decide.ts";
-import { DEFAULT_RULES, buildQuestions, rulesForTool, type JevRule } from "./questions.ts";
+import { DEFAULT_RULES, applyThresholdOverrides, buildQuestions, rulesForTool, type JevRule } from "./questions.ts";
 import { parseAnswers } from "./response.ts";
 import type { JevTransport } from "./types.ts";
 
@@ -27,6 +27,8 @@ export interface JevEngineOptions {
   readonly transport: JevTransport;
   readonly rules?: readonly JevRule[];
   readonly model?: string;
+  /** Per-rule threshold overrides from settings. */
+  readonly thresholds?: Readonly<Record<string, number>>;
   /** Shared state + questions budget, in characters. */
   readonly maxStateCharacters?: number;
   readonly now?: () => number;
@@ -62,10 +64,13 @@ export function createJevEngine(options: JevEngineOptions): DecisionEngine {
       // "does this violate the policy" with an empty policy produced 0.66-0.85 on
       // every fixture, which would have escalated every call.
       const hasPolicy = input.policy.trim().length > 0 && input.policy !== NO_POLICY_PLACEHOLDER;
-      const applicable = rulesForTool(input.call.tool, rules, {
-        hasPolicy,
-        hasProtectedTarget: input.call.protectedReason !== undefined,
-      });
+      const applicable = applyThresholdOverrides(
+        rulesForTool(input.call.tool, rules, {
+          hasPolicy,
+          hasProtectedTarget: input.call.protectedReason !== undefined,
+        }),
+        options.thresholds,
+      );
       const state = toJevState(input);
       const questions = buildQuestions(applicable);
 
@@ -118,10 +123,31 @@ export function createJevEngine(options: JevEngineOptions): DecisionEngine {
       });
 
       const combined = combine(applicable, observations);
+      const thresholds: Record<string, number> = {};
+      for (const rule of applicable) thresholds[rule.id] = rule.threshold;
+
+      const cleared = new Set(combined.clearedByIntent);
+      const conditions: ConditionReport[] = applicable.map((rule, index) => {
+        const observation = observations[index];
+        const verdict = observation?.verdict ?? "uncertain";
+        return {
+          ruleId: rule.id,
+          label: rule.label,
+          probability: observation?.probability ?? 0,
+          threshold: rule.threshold,
+          verdict: verdict === "uncertain" && rule.mode === "hazard" ? "ignored" : verdict,
+          clearedByIntent: cleared.has(rule.id),
+        };
+      });
+
       const evidence = {
         probabilities: combined.probabilities,
+        thresholds,
+        conditions,
         model: parsed.parsed.model,
         latencyMs,
+        ...(combined.decidingRule === undefined ? {} : { decidingRule: combined.decidingRule }),
+        ...(combined.clearedByIntent.length === 0 ? {} : { clearedByIntent: combined.clearedByIntent }),
       };
 
       switch (combined.verdict) {

@@ -11,9 +11,33 @@ import type { GatedCall, RepoFacts } from "./call.ts";
 
 export type DecisionSource = "hard-deny" | "user-rule" | "engine" | "unavailable" | "no-ui" | "user";
 
+/**
+ * A display-ready report of one condition's judgment.
+ *
+ * `verdict` is the band the probability fell into; `ignored` means a hazard-mode
+ * condition landed in the middle band, which is not evidence of anything. This is
+ * what a record shows during threshold tuning.
+ */
+export interface ConditionReport {
+  readonly ruleId: string;
+  readonly label: string;
+  readonly probability: number;
+  readonly threshold: number;
+  readonly verdict: "satisfied" | "rejected" | "uncertain" | "ignored";
+  readonly clearedByIntent: boolean;
+}
+
 export interface EngineEvidence {
   /** Per-condition probability, when the engine exposes one. */
   readonly probabilities?: Readonly<Record<string, number>>;
+  /** The threshold each probability was compared against. */
+  readonly thresholds?: Readonly<Record<string, number>>;
+  /** One entry per condition that was asked. */
+  readonly conditions?: readonly ConditionReport[];
+  /** The condition that decided the call, when one did. */
+  readonly decidingRule?: string;
+  /** Conditions whose clear rejection the user's own request cleared. */
+  readonly clearedByIntent?: readonly string[];
   readonly model?: string;
   readonly latencyMs?: number;
 }

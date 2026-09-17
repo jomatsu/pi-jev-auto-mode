@@ -4,11 +4,11 @@ An auto mode for the Pi coding agent in which a **decision-only model (JEV / Typ
 System One)** judges whether a tool call is within the user's intent and policy, inside a
 deterministic safety envelope that JEV cannot override.
 
-Status: **M1 and M2 complete.** The deterministic layer, the JEV engine (real API,
-calibrated against twelve fixtures), settings, command surface, records, and 107 tests
-exist. Verified end to end in a real Pi run: `git status` passes on the fast path,
+Status: **M1–M3 complete.** The deterministic layer, the JEV engine (real API, calibrated
+against twelve fixtures), settings, policy notes, per-rule threshold tuning, records, and 126
+tests exist. Verified end to end in a real Pi run: `git status` passes on the fast path,
 `npx --version` is judged by JEV and approved, and a candidate with no API key is blocked.
-M3 (policy authoring and threshold tooling) is next.
+M4 (hardening) is next.
 
 Measured probabilities and the reasoning behind every threshold:
 [`docs/calibration.md`](./docs/calibration.md).
@@ -109,8 +109,8 @@ questions, and the model never has to weigh concerns against each other.
 |---|---|---|---|
 | M1 | repo skeleton, deterministic layer, settings, command surface, records, tests | dangerous commands blocked, safe commands pass, tests green | **done** |
 | M2 | `src/jev/`: transport over `@typesafe-ai/sdk`, question set, response re-validation, probability mapping, real-API calibration | stub transport drives allow/deny/ask/unavailable deterministically; twelve real fixtures land on the expected outcomes | **done** |
-| M3 | policy notes authoring, threshold overrides, expanded record rendering | per-condition probabilities are visible and tunable from a session | next |
-| M4 | fail-closed, injection, abort, redaction hardening; privacy review | missing key, timeout, malformed response, and abort can never produce an allow | |
+| M3 | per-rule threshold overrides, tuning table, condition-level record rendering | per-condition probabilities are visible and tunable from a session | **done** |
+| M4 | fail-closed, injection, abort, redaction hardening; privacy review | missing key, timeout, malformed response, and abort can never produce an allow | next |
 | M5 | `pi install` distribution, docs, repeated calibration runs | the fixture set is stable across repeated runs | |
 
 ## 5. Calibration and tests
@@ -125,6 +125,9 @@ questions, and the model never has to weigh concerns against each other.
   [`docs/calibration.md`](./docs/calibration.md).
 - Measured variance between runs is ±0.05 on some conditions, so thresholds are chosen
   from bands, not from single values, and re-running is part of the tuning procedure.
+- Threshold overrides live in settings (`0.5 < t <= 1`, validated) and are applied per rule;
+  the tuning table in `/jev-auto-mode threshold` shows the last observed probability for each
+  rule so a threshold can be chosen from what the model actually answers.
 
 ## 6. Risks and open questions
 

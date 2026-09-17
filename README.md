@@ -6,11 +6,11 @@ so a gate either exists as an extension or it does not exist at all. This one ju
 `bash`, `write`, and `edit` tool calls semantically and **fails closed** whenever a decision
 cannot be made.
 
-> **Status: milestones 1 and 2 are complete.** The deterministic envelope, the JEV engine,
-> real-API calibration, settings, command surface, and decision records are implemented and
-> tested (107 tests, no network). See [`PLAN.md`](./PLAN.md) for the roadmap and
-> [`docs/calibration.md`](./docs/calibration.md) for the measured probabilities behind every
-> threshold.
+> **Status: milestones 1–3 are complete.** The deterministic envelope, the JEV engine,
+> real-API calibration, settings, policy notes, per-rule threshold tuning, and decision
+> records are implemented and tested (126 tests, no network). See [`PLAN.md`](./PLAN.md) for
+> the roadmap and [`docs/calibration.md`](./docs/calibration.md) for the measured
+> probabilities behind every threshold.
 
 ## What it does
 
@@ -73,6 +73,9 @@ pi -e /absolute/path/to/pi-jev-auto-mode
 /jev-auto-mode policy     list the policy notes
 /jev-auto-mode policy edit
 /jev-auto-mode policy clear
+/jev-auto-mode threshold                show thresholds and the last observed probability per rule
+/jev-auto-mode threshold <rule> <0.5-1> set one threshold
+/jev-auto-mode threshold reset [rule]   restore the calibrated default
 ```
 
 ```
@@ -90,6 +93,43 @@ expandable entry — expand it to see per-condition probabilities, the resolved 
 token usage. Records use `pi.appendEntry`, so they never enter the model's context: the model
 cannot argue with the gate using its own past rationales.
 
+## Tuning
+
+The thresholds are a starting point measured on twelve fixtures, not a truth
+([`docs/calibration.md`](./docs/calibration.md)). To retune them from your own work:
+
+1. Run the thing you care about. The gate records every judgment; expand the record in the
+transcript and read the per-condition table:
+
+```
+intent_coverage     p=0.97  pass (t=0.80, >= 0.80)
+no_outward_effect   p=0.06  reject (t=0.90, <= 0.10) <- decided (cleared by the user's request)
+local_scope         p=0.81  pass (t=0.90, >= 0.90)
+```
+
+2. If a condition that should have passed lands in the middle band, lower its threshold. If
+something got through that should not have, raise it. `/jev-auto-mode threshold` shows the
+current value next to the last probability the model returned for that rule.
+
+3. `/jev-auto-mode threshold <rule> <value>` writes the override. It takes effect immediately
+and persists in the global settings file.
+
+A threshold must leave a middle band on both sides (`0.5 < t <= 1`): `t` is the probability
+required to count as satisfied, and `1 - t` is the probability at or below which the condition
+counts as violated. Values that close one side are rejected.
+
+```json
+{
+  "thresholds": {
+    "intent_coverage": 0.6,
+    "no_secret_egress": 0.995
+  }
+}
+```
+
+The right fix is usually to phrase the condition better, not to move the threshold. If "should
+pass" and "should reject" answers overlap, the question is ambiguous.
+
 ## Configuration
 
 Global settings: `$PI_CODING_AGENT_DIR/jev-auto-mode.json` (default `~/.pi/agent/`).
@@ -105,7 +145,8 @@ Policy notes: `$PI_CODING_AGENT_DIR/jev-auto-mode-policy.md`.
   "allowedCommands": ["rm -rf build*"],
   "disallowedCommands": ["npm publish*"],
   "extraProtectedPaths": [],
-  "maxStateCharacters": 120000
+  "maxStateCharacters": 120000,
+  "thresholds": {}
 }
 ```
 

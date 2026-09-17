@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
-import { DEFAULT_SETTINGS, JevAutoModeStore, parseSettingsPatch } from "../src/settings.ts";
+import { DEFAULT_SETTINGS, JevAutoModeStore, mergeSettings, parseSettingsPatch, parseThreshold } from "../src/settings.ts";
 
 const temps: string[] = [];
 
@@ -34,6 +34,45 @@ describe("parseSettingsPatch", () => {
     assert.deepEqual(parseSettingsPatch("nope"), {});
     assert.deepEqual(parseSettingsPatch([1, 2]), {});
     assert.deepEqual(parseSettingsPatch(null), {});
+  });
+});
+
+describe("parseThreshold", () => {
+  it("accepts only values that leave a middle band on both sides", () => {
+    assert.equal(parseThreshold(0.8), 0.8);
+    assert.equal(parseThreshold(1), 1);
+    assert.equal(parseThreshold(0.5), undefined);
+    assert.equal(parseThreshold(0.4), undefined);
+    assert.equal(parseThreshold(1.01), undefined);
+    assert.equal(parseThreshold("0.8"), undefined);
+    assert.equal(parseThreshold(Number.NaN), undefined);
+  });
+});
+
+describe("threshold settings", () => {
+  it("keeps only usable entries", () => {
+    const patch = parseSettingsPatch({
+      thresholds: { intent_coverage: 0.6, local_scope: 0.4, broken: "nope", "": 0.9 },
+    });
+    assert.deepEqual(patch.thresholds, { intent_coverage: 0.6 });
+  });
+
+  it("merges per rule so one override does not wipe the others", () => {
+    const merged = mergeSettings(
+      { ...DEFAULT_SETTINGS, thresholds: { intent_coverage: 0.6, local_scope: 0.95 } },
+      { thresholds: { local_scope: 0.99 } },
+    );
+    assert.deepEqual(merged.thresholds, { intent_coverage: 0.6, local_scope: 0.99 });
+  });
+
+  it("survives a save and load round trip", async () => {
+    const dir = await tempDir();
+    const cwd = join(dir, "project");
+    const store = new JevAutoModeStore({ agentDir: join(dir, "agent"), configDirName: ".pi" });
+
+    await store.saveSettings({ ...DEFAULT_SETTINGS, thresholds: { no_secret_egress: 0.995 } }, "global", cwd);
+    const loaded = await store.loadSettings(cwd, true);
+    assert.deepEqual(loaded.settings.thresholds, { no_secret_egress: 0.995 });
   });
 });
 

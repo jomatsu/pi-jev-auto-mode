@@ -24,9 +24,11 @@ import {
 import { buildGatedCall, type GatedCall, type RepoFacts, type ToolCallEventLike } from "./call.ts";
 import { createManualEngine, type CandidateInput, type DecisionEngine, type EngineEvidence, type EngineVerdict } from "./decide.ts";
 import {
+  DEFAULT_RULES,
   createJevEngine,
   createSdkTransport,
   describeJevAvailability,
+  ruleById,
   type Observation,
   type ObservationMeta,
 } from "./jev/index.ts";
@@ -45,8 +47,16 @@ import {
   type DecisionRecord,
   type DecisionRecorder,
 } from "./records.ts";
-import { DEFAULT_SETTINGS, JevAutoModeStore, type JevAutoModeSettings, type SettingsScope } from "./settings.ts";
-import { describeSettings, POLICY_HEADER, statusText, updateStatus, USAGE_TEXT } from "./ui.ts";
+import { DEFAULT_SETTINGS, JevAutoModeStore, parseThreshold, type JevAutoModeSettings, type SettingsScope } from "./settings.ts";
+import {
+  describeSettings,
+  formatRuleTable,
+  POLICY_HEADER,
+  statusText,
+  updateStatus,
+  USAGE_TEXT,
+  type ObservedCondition,
+} from "./ui.ts";
 
 export const AUTO_MODE_FLAG = "jev-auto-mode";
 export const AUTO_MODE_COMMAND = "jev-auto-mode";
@@ -133,6 +143,9 @@ function writeRecord(deps: DecisionDeps, input: RecordInput): void {
     status: input.status,
     source: input.source,
     rationale: input.rationale,
+    ...(input.evidence?.conditions ? { conditions: input.evidence.conditions } : {}),
+    ...(input.evidence?.decidingRule ? { decidingRule: input.evidence.decidingRule } : {}),
+    ...(input.evidence?.clearedByIntent ? { clearedByIntent: input.evidence.clearedByIntent } : {}),
     ...(input.evidence?.probabilities ? { probabilities: input.evidence.probabilities } : {}),
     ...(input.evidence?.model ? { model: input.evidence.model } : {}),
     ...(input.evidence?.latencyMs !== undefined ? { latencyMs: input.evidence.latencyMs } : {}),
@@ -251,6 +264,10 @@ export async function evaluateToolCall(
 
   const evidence: EngineEvidence = {
     ...(verdict.probabilities ? { probabilities: verdict.probabilities } : {}),
+    ...(verdict.thresholds ? { thresholds: verdict.thresholds } : {}),
+    ...(verdict.conditions ? { conditions: verdict.conditions } : {}),
+    ...(verdict.decidingRule ? { decidingRule: verdict.decidingRule } : {}),
+    ...(verdict.clearedByIntent ? { clearedByIntent: verdict.clearedByIntent } : {}),
     ...(verdict.model ? { model: verdict.model } : {}),
     ...(verdict.latencyMs !== undefined ? { latencyMs: verdict.latencyMs } : {}),
   };
@@ -362,6 +379,7 @@ export function createEngine(settings: JevAutoModeSettings, options: RegisterOpt
     }),
     model: availability.model,
     maxStateCharacters: settings.maxStateCharacters,
+    thresholds: settings.thresholds,
     ...(options.onObservation === undefined ? {} : { onObservation: options.onObservation }),
   });
 }
@@ -370,10 +388,33 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
   const store =
     options.store ?? new JevAutoModeStore({ agentDir: getAgentDir(), configDirName: CONFIG_DIR_NAME });
   const state = createInitialState();
+  const observed = new Map<string, ObservedCondition>();
+  const now = options.now ?? (() => Date.now());
+
+  // Wrap the calibration channel so the tuning table can show what the model last
+  // answered for each condition, even when the decision did not depend on it.
+  const engineOptions: RegisterOptions = {
+    ...options,
+    onObservation: (observations, meta) => {
+      for (const observation of observations) {
+        observed.set(observation.ruleId, {
+          probability: observation.probability,
+          threshold: observation.threshold,
+          verdict:
+            observation.verdict === "uncertain" && observation.effective === "satisfied"
+              ? "ignored"
+              : observation.verdict,
+          at: now(),
+        });
+      }
+      options.onObservation?.(observations, meta);
+    },
+  };
+
   let deps: DecisionDeps = {
-    engine: createEngine(state.settings, options),
+    engine: createEngine(state.settings, engineOptions),
     record: options.record ?? createRecorder(pi),
-    now: options.now ?? (() => Date.now()),
+    now,
   };
   let loaded = false;
 
@@ -386,7 +427,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
     if (applyFlag && pi.getFlag(AUTO_MODE_FLAG) === true) {
       state.settings = { ...state.settings, enabled: true };
     }
-    deps = { ...deps, engine: createEngine(state.settings, options) };
+    deps = { ...deps, engine: createEngine(state.settings, engineOptions) };
     loaded = true;
     updateStatus(ctx, { enabled: state.settings.enabled, engineId: deps.engine.id, scope: state.scope });
   };
@@ -405,6 +446,29 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
 
   pi.registerCommand(AUTO_MODE_COMMAND, {
     description: "Show or change the JEV auto mode settings",
+    getArgumentCompletions: (argumentPrefix) => {
+      const value = String(argumentPrefix ?? "");
+      const tokens = value.split(/\s+/).filter(Boolean);
+      if (tokens.length === 0) {
+        return ["status", "on", "off", "policy", "threshold"].map((item) => ({ value: item, label: item }));
+      }
+      if (tokens[0] === "threshold") {
+        if (tokens.length <= 1) {
+          return ["reset", ...DEFAULT_RULES.map((rule) => rule.id)]
+            .filter((item) => item.startsWith(tokens[1] ?? ""))
+            .map((item) => ({ value: `threshold ${item}`, label: item }));
+        }
+        if (tokens.length === 2) {
+          const rule = ruleById(tokens[1] ?? "");
+          if (!rule) return null;
+          return [
+            { value: `threshold ${rule.id}`, label: `current: ${rule.threshold}` },
+            { value: `threshold ${rule.id} reset`, label: "reset to the calibrated default" },
+          ];
+        }
+      }
+      return null;
+    },
     handler: async (args, ctx) => {
       const gateContext = toGateContext(ctx);
       if (!loaded) await refresh(gateContext, true);
@@ -464,6 +528,68 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
         await store.savePolicyNotes("");
         state.policyNotes = "";
         ctx.ui.notify("Policy notes cleared.", "info");
+        return;
+      }
+
+      if (value === "threshold" || value === "threshold list") {
+        ctx.ui.notify(formatRuleTable(DEFAULT_RULES, state.settings.thresholds, observed), "info");
+        return;
+      }
+
+      const thresholdMatch = /^threshold\s+(\S+)(?:\s+(\S+))?$/.exec(value);
+      if (thresholdMatch) {
+        const ruleId = thresholdMatch[1] ?? "";
+        const argument = thresholdMatch[2];
+
+        if (ruleId === "reset" || argument === "reset") {
+          const target = ruleId === "reset" ? argument : ruleId;
+          const thresholds = { ...state.settings.thresholds };
+          if (target && target !== "reset") {
+            if (!ruleById(target)) {
+              ctx.ui.notify(`Unknown rule \`${target}\`.\n\n${formatRuleTable(DEFAULT_RULES, state.settings.thresholds, observed)}`, "warning");
+              return;
+            }
+            delete thresholds[target];
+          } else {
+            for (const key of Object.keys(thresholds)) delete thresholds[key];
+          }
+          state.settings = { ...state.settings, thresholds };
+          await save(gateContext);
+          deps = { ...deps, engine: createEngine(state.settings, engineOptions) };
+          ctx.ui.notify(
+            `Threshold overrides cleared${target && target !== "reset" ? ` for \`${target}\`` : ""}.\n\n${formatRuleTable(DEFAULT_RULES, state.settings.thresholds, observed)}`,
+            "info",
+          );
+          return;
+        }
+
+        const rule = ruleById(ruleId);
+        if (!rule) {
+          ctx.ui.notify(`Unknown rule \`${ruleId}\`.\n\n${formatRuleTable(DEFAULT_RULES, state.settings.thresholds, observed)}`, "warning");
+          return;
+        }
+
+        if (argument === undefined) {
+          ctx.ui.notify(formatRuleTable(DEFAULT_RULES, state.settings.thresholds, observed), "info");
+          return;
+        }
+
+        const threshold = parseThreshold(Number(argument));
+        if (threshold === undefined) {
+          ctx.ui.notify(`A threshold must be greater than 0.5 and at most 1.0 (got \`${argument}\`).`, "error");
+          return;
+        }
+
+        state.settings = {
+          ...state.settings,
+          thresholds: { ...state.settings.thresholds, [ruleId]: threshold },
+        };
+        await save(gateContext);
+        deps = { ...deps, engine: createEngine(state.settings, engineOptions) };
+        ctx.ui.notify(
+          `\`${ruleId}\` now requires p >= ${threshold.toFixed(2)} (rejecting at p <= ${(1 - threshold).toFixed(2)}).\n\n${formatRuleTable(DEFAULT_RULES, state.settings.thresholds, observed)}`,
+          "info",
+        );
         return;
       }
 
