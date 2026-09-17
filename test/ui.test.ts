@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ConditionReport } from "../src/decide.ts";
 import { formatConditionLines, formatDecisionLine, type DecisionRecord } from "../src/records.ts";
-import { formatRuleTable, statusText, type ObservedCondition } from "../src/ui.ts";
+import {
+  buildConfirmationDialog,
+  clampLines,
+  formatRuleTable,
+  previewCommand,
+  statusText,
+  type ObservedCondition,
+} from "../src/ui.ts";
 import { DEFAULT_RULES } from "../src/jev/questions.ts";
 
 function condition(patch: Partial<ConditionReport> & { ruleId: string }): ConditionReport {
@@ -109,5 +116,72 @@ describe("threshold table", () => {
   it("shows a dash when a condition has not been observed yet", () => {
     const table = formatRuleTable(DEFAULT_RULES, {}, new Map());
     assert.match(table, /intent_coverage\s+required\s+hazard\s+0\.80 default\s+-/);
+  });
+});
+
+describe("confirmation dialogs", () => {
+  const longCommand = Array.from({ length: 60 }, (_, i) => `# padding line ${i + 1}`).join("\n") + "\nsudo -n true";
+
+  it("bounds a long command to a preview and says what was hidden", () => {
+    const preview = previewCommand(longCommand);
+    assert.equal(preview.lines.length, 6);
+    assert.equal(preview.truncated, true);
+    assert.equal(preview.hiddenLines, 55);
+    assert.ok(preview.hiddenCharacters > 0);
+  });
+
+  it("bounds a single very long line and counts what was cut", () => {
+    const preview = previewCommand("echo " + "x".repeat(5000), { maxLines: 6, maxLineLength: 40 });
+    assert.equal(preview.lines[0]?.length, 41);
+    assert.match(preview.lines[0] ?? "", /…$/);
+    assert.equal(preview.hiddenLines, 0);
+    assert.ok(preview.hiddenCharacters > 4900);
+    assert.equal(preview.truncated, true);
+  });
+
+  it("does not claim truncation when nothing was cut", () => {
+    const preview = previewCommand("sudo -n true");
+    assert.equal(preview.truncated, false);
+    assert.equal(preview.hiddenCharacters, 0);
+  });
+
+  it("keeps the whole dialog short, which is what the TUI needs", () => {
+    // Pi's dialogs do not clip their content: an oversized title pushes the dialog's
+    // own heading off screen and makes the terminal scroll back and forth.
+    const dialog = buildConfirmationDialog({
+      tool: "bash",
+      command: longCommand,
+      reasons: ["sudo", "package execution or publish", "git force push"],
+      rationale: "It is not clear whether the user's request covers this call. within the request (p=0.73)",
+    });
+
+    const lines = dialog.split("\n");
+    assert.ok(lines.length <= 14, `dialog was ${lines.length} lines`);
+    assert.match(dialog, /^Jev auto mode wants confirmation/);
+    assert.match(dialog, /more line\(s\).*the full command is in the tool call above/);
+    assert.ok(!dialog.includes("# padding line 60"));
+  });
+
+  it("stays short for a write, where no command is involved", () => {
+    const dialog = buildConfirmationDialog({
+      tool: "write",
+      path: "/Users/dev/project/.env",
+      reasons: ["protected file `.env`"],
+      rationale: "It is not clear whether the write target is protected. (p=0.25)",
+    });
+    assert.ok(dialog.split("\n").length <= 14);
+    assert.match(dialog, /Tool: write/);
+    assert.match(dialog, /\.env/);
+  });
+
+  it("clamps a block that is over budget even when the parts are small", () => {
+    const clamped = clampLines(Array.from({ length: 30 }, (_, i) => `line ${i}`).join("\n"), 5);
+    assert.equal(clamped.split("\n").length, 5);
+    assert.match(clamped, /more lines/);
+  });
+
+  it("leaves a short dialog untouched", () => {
+    const short = "one\ntwo";
+    assert.equal(clampLines(short, 5), short);
   });
 });

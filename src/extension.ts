@@ -53,6 +53,7 @@ import {
 } from "./records.ts";
 import { DEFAULT_SETTINGS, JevAutoModeStore, parseThreshold, type JevAutoModeSettings, type SettingsScope } from "./settings.ts";
 import {
+  buildConfirmationDialog,
   describeSettings,
   formatRuleTable,
   POLICY_HEADER,
@@ -317,16 +318,13 @@ export async function evaluateToolCall(
         );
       }
 
-      const dialog = [
-        "Jev auto mode wants confirmation before this runs.",
-        "",
-        `Tool: ${call.tool}`,
-        ...(call.command ? [call.command] : []),
-        ...(call.path ? [call.path] : []),
-        "",
-        `Matched: ${reasons.join(", ")}`,
-        `Rationale: ${verdict.rationale}`,
-      ].join("\n");
+      const dialog = buildConfirmationDialog({
+        tool: call.tool,
+        ...(call.command === undefined ? {} : { command: call.command }),
+        ...(call.path === undefined ? {} : { path: call.path }),
+        reasons,
+        rationale: verdict.rationale,
+      });
 
       const choice = await ctx.ui.select(dialog, ["No", "Yes"]);
       if (choice !== "Yes") {

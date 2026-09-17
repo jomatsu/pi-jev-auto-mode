@@ -46,6 +46,93 @@ export function describeSettings(settings: JevAutoModeSettings, scope: SettingsS
   ].join("\n");
 }
 
+/**
+ * A bounded rendering of a command, for dialogs.
+ *
+ * Pi's dialogs do not clip their content: a 60-line title fills the pane and pushes
+ * the dialog's own heading off screen, and opening and closing one per tool call
+ * makes the terminal scroll back and forth. So the preview is bounded here, and the
+ * full command stays where it already is — in the tool call above the dialog.
+ */
+export interface CommandPreview {
+  readonly lines: readonly string[];
+  readonly truncated: boolean;
+  readonly hiddenLines: number;
+  readonly hiddenCharacters: number;
+}
+
+export const DEFAULT_PREVIEW_LINES = 6;
+export const DEFAULT_PREVIEW_LINE_LENGTH = 120;
+
+export function previewCommand(
+  command: string,
+  options: { readonly maxLines?: number; readonly maxLineLength?: number } = {},
+): CommandPreview {
+  const maxLines = options.maxLines ?? DEFAULT_PREVIEW_LINES;
+  const maxLineLength = options.maxLineLength ?? DEFAULT_PREVIEW_LINE_LENGTH;
+
+  const all = command.split("\n");
+  const kept = all.slice(0, maxLines);
+  const lines = kept.map((line) => (line.length > maxLineLength ? `${line.slice(0, maxLineLength)}…` : line));
+  const hidden = all.slice(maxLines);
+
+  // A single 4000-character line has no hidden lines, but most of it was still cut.
+  const cutCharacters = kept.reduce((total, line, index) => total + Math.max(0, line.length - (lines[index]?.length ?? 0)), 0);
+  const hiddenCharacters = hidden.reduce((total, line) => total + line.length + 1, 0) + cutCharacters;
+
+  return {
+    lines,
+    truncated: hidden.length > 0 || cutCharacters > 0,
+    hiddenLines: hidden.length,
+    hiddenCharacters,
+  };
+}
+
+/** Cut a text block to a line budget, marking what was dropped. */
+export function clampLines(text: string, maxLines: number): string {
+  const lines = text.split("\n");
+  if (lines.length <= maxLines) return text;
+  return [...lines.slice(0, maxLines - 1), `… (${lines.length - maxLines + 1} more lines)`].join("\n");
+}
+
+export interface ConfirmationParts {
+  readonly tool: string;
+  readonly command?: string;
+  readonly path?: string;
+  readonly reasons: readonly string[];
+  readonly rationale: string;
+}
+
+/** The dialog shown when a judgment is delegated to the user. */
+export const CONFIRMATION_MAX_LINES = 14;
+
+export function buildConfirmationDialog(parts: ConfirmationParts): string {
+  const preview = parts.command === undefined ? undefined : previewCommand(parts.command);
+  const hiddenNote =
+    preview?.truncated === true
+      ? `… ${[
+          preview.hiddenLines > 0 ? `${preview.hiddenLines} more line(s)` : undefined,
+          `${preview.hiddenCharacters} more character(s)`,
+        ]
+          .filter(Boolean)
+          .join(", ")} — the full command is in the tool call above`
+      : undefined;
+
+  return clampLines(
+    [
+      "Jev auto mode wants confirmation before this runs.",
+      `Tool: ${parts.tool}`,
+      ...(preview?.lines ?? []),
+      ...(hiddenNote === undefined ? [] : [hiddenNote]),
+      ...(parts.path === undefined ? [] : [parts.path]),
+      "",
+      `Matched: ${parts.reasons.join(", ")}`,
+      parts.rationale,
+    ].join("\n"),
+    CONFIRMATION_MAX_LINES,
+  );
+}
+
 export const USAGE_TEXT = [
   "Usage:",
   "  /jev-auto-mode                     show status",

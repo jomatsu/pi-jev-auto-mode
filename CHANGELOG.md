@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2
+
+- Fix the screen thrashing that happened whenever a judgment was delegated to the user: the
+  confirmation dialog was handed the whole command, and Pi's dialogs do not clip their content,
+  so a long command produced a dialog taller than the terminal. The dialog now shows a bounded
+  preview and says what was hidden.
+
 ## 0.1.1
 
 - Correct the product name. It is **Jev** — TypeSafe's System One model, spelled with a
