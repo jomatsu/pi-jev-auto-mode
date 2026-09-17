@@ -228,6 +228,18 @@ Obvious credentials (`*_KEY=…`, `Bearer …`, JWTs, `sk-…`, `ghp_…`, PEM p
 redacted on the way out. Assistant output, tool output, and file contents are never sent.
 Details and the failure-mode table: [`docs/security.md`](./docs/security.md).
 
+## Releasing
+
+A version, a tag, and a release are cut **once, when the version is published**, so the tag list
+matches what people can install. Unfinished work accumulates under `## Unreleased` in
+`CHANGELOG.md` and is renamed to the version at release time:
+
+1. `npm run check`
+2. rename `## Unreleased` to `## <version>` in `CHANGELOG.md`, bump `version` in `package.json`
+3. commit, `git tag -a v<version>`, `git push --follow-tags`
+4. `gh release create v<version> --notes-file <(the changelog section)`
+5. `npm publish`
+
 ## Development
 
 ```sh

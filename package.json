@@ -1,6 +1,6 @@
 {
   "name": "pi-jev-auto-mode",
-  "version": "0.5.0",
+  "version": "0.4.0",
   "description": "Jev (TypeSafe System One) backed auto mode for the Pi coding agent: semantically auto-approves bash, write, and edit tool calls and fails closed when a decision cannot be made.",
   "keywords": [
     "pi-package",

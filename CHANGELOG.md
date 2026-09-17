@@ -1,35 +1,31 @@
 # Changelog
 
-## 0.5.0
-
-- **The "did the user ask for this?" question is now asked only about commands the deterministic
-  layer recognised as a dangerous shape, and only a clear "no" blocks it.** Under `gateScope:
-  all` it had been asked about every command, so ordinary work the request never mentioned — a
-  `mv`, a `cp`, a `tar`, a `chmod +x` — was blocked. An auto mode that stops for those has no
-  reason to exist; the agent is doing its job, not going off the rails.
-- `intent_coverage` moves from required to hazard mode for the same reason. A recognised
-  dangerous shape the user never asked for still fails it clearly (measured p = 0.04–0.11), which
-  is where the question earns its place, and a merely unclear answer no longer stops a call.
-- Measured after the change: an unrequested `mv`, `cp`, `tar`, `chmod +x`, or `node -e` is
-  allowed; an unrequested `git reset --hard`, `npm publish`, `rm -rf`, or `sudo` is blocked.
 
 ## 0.4.0
 
-**The semantic layer now sees everything the deterministic layer cannot vouch for.**
+**The semantic layer now sees everything the deterministic layer cannot vouch for, and it does
+not stop ordinary work.**
 
-- `gateScope` (default `all`) replaces the denylist as the way calls are selected. A
-  dangerous pattern can only recognise a shape someone wrote down first: a request that uploads
-  a file (`curl -d @...`) once ran with no judgment at all because no pattern described it, and
-  adding patterns to a denylist is a race that never ends. Under `all`, the deterministic layer
-  names what it can vouch for and everything else is judged. `matched` keeps the old behaviour.
-- Read-only inspection is now a real fast path, because under `all` it carries the load that the
+- `gateScope` (default `all`) replaces the denylist as the way calls are selected. A dangerous
+  pattern can only recognise a shape someone wrote down first: a request that uploads a file
+  (`curl -d @...`) once ran with no judgment at all because no pattern described it, and adding
+  patterns to a denylist is a race that never ends. Under `all`, the deterministic layer names
+  what it can vouch for and everything else is judged. `matched` keeps the old behaviour.
+  `/jev-auto-mode scope all|matched` switches between them.
+- **The intent question is asked only about commands the deterministic layer recognised as a
+  dangerous shape, and only a clear "this was not requested" blocks.** Asked about every command,
+  it blocked ordinary work the request never mentioned — an unrequested `mv`, `cp`, `tar`,
+  `chmod +x`, or `node -e`. An auto mode that stops for those has no reason to exist. Measured
+  after the change: those run, while an unrequested `git reset --hard`, `npm publish`, `rm -rf`,
+  or `sudo` still blocks (p = 0.04–0.11).
+- Read-only inspection is now a real fast path, because under `all` it carries the load the
   denylist used to carry: `cat`, `head`, `tail`, `wc`, `find`, `jq`, `diff`, `sort`, `stat`,
   version probes, and read-only git subcommands. Destructive variants (`find -delete`,
   `git tag -d`, `push --force`) still match dangerous patterns and are judged.
 - The user's `safeCommands` outranks a dangerous-pattern match; the built-in read-only list does
   not, so `grep secret ~/.ssh/id_ed25519` is judged even though `grep` is read-only.
-- `/jev-auto-mode scope all|matched` shows and changes it. `Escalated:` replaces `Matched:` in
-  the confirmation dialog, because under `all` the reasons are not all pattern matches.
+- `Escalated:` replaces `Matched:` in the confirmation dialog, because under `all` the reasons
+  are not all pattern matches.
 
 ## 0.3.0
 
@@ -56,6 +52,9 @@ ones. Corrected:
 
 ## 0.2.0
 
+- The confirmation dialog is bounded: it showed the whole command, and since Pi's dialogs do not
+  clip their content a long command produced a dialog taller than the terminal. It now shows a
+  short preview and says what was hidden.
 - **The middle band no longer asks the user by default.** An auto mode that stops to ask has
   handed the decision back to a human, and the agent can always ask in conversation if it needs
   guidance. A judgment that is neither satisfied nor rejected now blocks, so the gate never
@@ -65,12 +64,6 @@ ones. Corrected:
 - `/jev-auto-mode threshold edit` picks a rule and prompts for a value, showing each rule's
   current threshold next to the last probability the model returned for it.
 
-## 0.1.2
-
-- Fix the screen thrashing that happened whenever a judgment was delegated to the user: the
-  confirmation dialog was handed the whole command, and Pi's dialogs do not clip their content,
-  so a long command produced a dialog taller than the terminal. The dialog now shows a bounded
-  preview and says what was hidden.
 
 ## 0.1.1
 
