@@ -481,8 +481,9 @@ export interface RegisterOptions {
 /**
  * Build the semantic engine for the current settings.
  *
- * Without a key the gate keeps working with the ask-only engine rather than
- * dropping to "allow": the degradation stays visible and stays closed.
+ * With no key the gate still runs its own rules, but a call nothing vouches for is
+ * blocked with "Not connected to Jev" rather than judged. A missing key must not
+ * turn into "allow everything".
  */
 export function createEngine(
   settings: JevAutoModeSettings,
@@ -709,7 +710,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
           "Remove the stored TypeSafe API key?",
           availability.source === "env"
             ? "It is not in use anyway: TYPESAFE_API_KEY takes precedence."
-            : "The semantic layer will fall back to ask-only until a key is available again.",
+            : "Without a key the gate blocks every call it cannot vouch for, and says why.",
         );
         if (!confirmed) return;
 
@@ -723,7 +724,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
         ctx.ui.notify(
           availability.available
             ? `Stored key removed. Still using ${describeKeySource(availability.source)}.`
-            : "Stored key removed. The semantic layer is now ask-only.",
+            : "Stored key removed. The gate will block calls it cannot vouch for until a key is set again.",
           "info",
         );
         return;

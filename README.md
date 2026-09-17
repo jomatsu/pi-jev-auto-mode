@@ -120,8 +120,9 @@ pi --jev-auto-mode        start with auto mode enabled
 ```
 
 The semantic layer needs a [TypeSafe](https://typesafe.ai/) API key. Jev is early access, so an
-account may be waitlisted; **the gate still works without one**, running in ask-only mode
-(confirm in a UI, block without one) rather than silently allowing everything.
+account may be waitlisted; **the gate still works without one**. Its own rules keep running —
+read-only and user-declared safe commands pass, hard-deny shapes are blocked — but a call
+nothing vouches for is blocked with "Not connected to Jev" instead of being judged.
 
 `/jev-auto-mode login` asks for the key, verifies it against the API (`GET /v1/models`), and
 stores it as an owner-only file at
@@ -134,9 +135,9 @@ A key is only stored after the API accepts it: a typo that got saved would turn 
 that silently blocks every escalated call. If the API cannot be reached the key is not stored
 either, and the command says so rather than claiming success.
 
-Without a key the gate does not disable itself: it falls back to the ask-only engine, which
-confirms in a UI and blocks when there is none. The footer shows `🛡 jev (<scope>)` while the
-semantic layer is active and `🛡 jev ask-only (<scope>)` when it is not.
+Without a key the gate does not disable itself and does not allow everything: it stops the calls
+it cannot judge and says it is not connected to Jev. The footer shows `🛡 jev (<scope>)` while the
+semantic layer is active and `🛡 jev no key (<scope>)` when it is not.
 
 ## Tuning
 

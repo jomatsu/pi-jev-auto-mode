@@ -1,10 +1,12 @@
 /**
  * Is the semantic layer usable right now, and where did the key come from?
  *
- * A missing key must not silently degrade into "allow everything": the engine
- * falls back to the ask-only engine, which confirms in a UI and blocks without
- * one. The reason and the key's origin are surfaced in `/jev-auto-mode status` so
- * the degradation and the credential path are visible rather than mysterious.
+ * A missing key must not silently degrade into "allow everything". The gate keeps
+ * running its own rules — read-only and user-declared safe commands pass, hard-deny
+ * patterns are blocked — but a call nothing vouches for is blocked with "Not
+ * connected to Jev" instead of being judged. The reason and the key's origin are
+ * surfaced in `/jev-auto-mode status` so the situation is visible rather than
+ * mysterious.
  *
  * `TYPESAFE_API_KEY` wins over the stored secret, so a one-off or CI override does
  * not require touching the stored credential.
