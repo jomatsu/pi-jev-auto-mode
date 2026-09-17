@@ -17,8 +17,13 @@
   "license": "MIT",
   "author": "jomatsu",
   "homepage": "https://github.com/jomatsu/pi-jev-auto-mode",
-  "bugs": "https://github.com/jomatsu/pi-jev-auto-mode/issues",
-  "repository": "github:jomatsu/pi-jev-auto-mode",
+  "bugs": {
+    "url": "https://github.com/jomatsu/pi-jev-auto-mode/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jomatsu/pi-jev-auto-mode.git"
+  },
   "type": "module",
   "engines": {
     "node": ">=22.19.0"
