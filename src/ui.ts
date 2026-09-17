@@ -21,8 +21,7 @@ export interface StatusInput {
 export function statusText(input: StatusInput): string {
   if (!input.enabled) return "🛡 jev off";
   const scope = input.scope === "project" ? "project" : "global";
-  const engine = input.engineId === "manual" ? " ask-only" : "";
-  return `🛡 jev${engine} (${scope})`;
+  return input.engineId === "manual" ? `🛡 jev no key (${scope})` : `🛡 jev (${scope})`;
 }
 
 export interface StatusContext {

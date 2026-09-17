@@ -212,6 +212,28 @@ describe("deterministic layer wins before the engine", () => {
   });
 });
 
+describe("no Jev connection", () => {
+  const manual: DecisionEngine = { id: "manual", judge: async () => ({ verdict: "uncertain", rationale: "" }) };
+
+  it("says so and stops instead of inventing a verdict", async () => {
+    const { deps, records, inputs } = createDeps({ engine: manual });
+    const result = await evaluateToolCall(bash("mkdir -p notes"), createContext(), stateWith(), deps);
+
+    assert.equal(result?.block, true);
+    assert.match(result?.reason ?? "", /Not connected to Jev/);
+    assert.match(result?.reason ?? "", /\/jev-auto-mode login/);
+    assert.deepEqual(inputs, [], "the engine is not asked to judge");
+    assert.equal(records[0]?.source, "unavailable");
+  });
+
+  it("still runs read-only work without a key", async () => {
+    const { deps, inputs } = createDeps({ engine: manual });
+    const result = await evaluateToolCall(bash("cd src && ls -la && git log -3"), createContext(), stateWith(), deps);
+    assert.equal(result, undefined);
+    assert.deepEqual(inputs, []);
+  });
+});
+
 describe("gate scope", () => {
   it("judges a call no pattern describes, and says why", async () => {
     // The hole this scope exists for: `curl -d @file` matched no pattern and once ran
@@ -344,16 +366,29 @@ describe("semantic verdicts", () => {
 describe("the uncertain band", () => {
   const uncertain: EngineVerdict = { verdict: "uncertain", rationale: "the intent is not clear" };
 
-  it("blocks by default, without asking and without taking over the screen", async () => {
-    // The default is not a prompt: an auto mode that stops to ask has handed the
-    // decision back to the human.
+  it("passes an unclear call by default, without asking", async () => {
+    // The default is not a prompt and not a block: an auto mode that interrupts for an
+    // unclear answer is an auto mode in name only.
     const ui = createUi({ answer: "Yes" });
     const { deps, records } = createDeps({ verdict: uncertain });
     const result = await evaluateToolCall(bash("git clean -fd"), createContext({ ui: ui.ui }), stateWith(), deps);
 
-    assert.equal(result?.block, true);
+    assert.equal(result, undefined);
+    assert.equal(records[0]?.status, "allowed");
     assert.equal(records[0]?.source, "uncertain");
     assert.deepEqual(ui.selections, [], "no dialog is shown by default");
+  });
+
+  it("blocks an unclear call when configured to", async () => {
+    const { deps, records } = createDeps({ verdict: uncertain });
+    const result = await evaluateToolCall(
+      bash("git clean -fd"),
+      createContext(),
+      stateWith({ uncertain: "deny" }),
+      deps,
+    );
+    assert.equal(result?.block, true);
+    assert.equal(records[0]?.source, "uncertain");
     assert.match(records[0]?.rationale ?? "", /resolved to a block/);
   });
 

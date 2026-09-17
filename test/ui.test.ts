@@ -70,7 +70,7 @@ describe("decision records", () => {
 describe("status text", () => {
   it("distinguishes an active gate from the ask-only fallback", () => {
     assert.equal(statusText({ enabled: true, engineId: "jev", scope: "global" }), "🛡 jev (global)");
-    assert.equal(statusText({ enabled: true, engineId: "manual", scope: "project" }), "🛡 jev ask-only (project)");
+    assert.equal(statusText({ enabled: true, engineId: "manual", scope: "project" }), "🛡 jev no key (project)");
     assert.equal(statusText({ enabled: false, engineId: "jev", scope: "global" }), "🛡 jev off");
   });
 });

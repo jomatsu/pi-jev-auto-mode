@@ -135,7 +135,7 @@ describe("registration", () => {
   it("loads settings on session start and shows the footer status", async () => {
     const { cwd, harness } = await setup();
     await harness.handlers.get("session_start")?.[0]?.({}, createContext(harness, cwd));
-    assert.equal(harness.statuses.at(-1), "🛡 jev ask-only (global)");
+    assert.equal(harness.statuses.at(-1), "🛡 jev no key (global)");
   });
 });
 
@@ -187,7 +187,7 @@ describe("command wiring", () => {
 
     await command.handler("status", createContext(harness, cwd));
     const message = harness.notifications.at(-1)?.message ?? "";
-    assert.match(message, /ask-only/);
+    assert.match(message, /no key/);
     assert.match(message, /semantic layer: unavailable \(no TypeSafe API key is available \(run \/jev-auto-mode login/);
     assert.match(message, new RegExp(`max state characters: ${DEFAULT_SETTINGS.maxStateCharacters}`));
   });
@@ -242,7 +242,7 @@ describe("command wiring", () => {
     assert.ok(command);
 
     await harness.handlers.get("session_start")?.[0]?.({}, createContext(harness, cwd));
-    assert.equal(harness.statuses.at(-1), "🛡 jev ask-only (global)");
+    assert.equal(harness.statuses.at(-1), "🛡 jev no key (global)");
 
     harness.enteredKey = "apikey_verified";
     await command.handler("login", createContext(harness, cwd));
@@ -252,7 +252,7 @@ describe("command wiring", () => {
 
     await command.handler("logout", createContext(harness, cwd));
     assert.equal(await store.readStoredApiKey(), undefined);
-    assert.equal(harness.statuses.at(-1), "🛡 jev ask-only (global)");
+    assert.equal(harness.statuses.at(-1), "🛡 jev no key (global)");
   });
 
   it("refuses a key the API rejects and stores nothing", async () => {
@@ -307,14 +307,14 @@ describe("command wiring", () => {
     assert.ok(command);
 
     await command.handler("uncertain", createContext(harness, cwd));
-    assert.match(harness.notifications.at(-1)?.message ?? "", /uncertain: deny/);
+    assert.match(harness.notifications.at(-1)?.message ?? "", /uncertain: allow/);
 
-    await command.handler("uncertain allow", createContext(harness, cwd));
-    assert.equal((await store.loadSettings(cwd, true)).settings.uncertain, "allow");
+    await command.handler("uncertain deny", createContext(harness, cwd));
+    assert.equal((await store.loadSettings(cwd, true)).settings.uncertain, "deny");
 
     await command.handler("uncertain maybe", createContext(harness, cwd));
     assert.equal(harness.notifications.at(-1)?.type, "error");
-    assert.equal((await store.loadSettings(cwd, true)).settings.uncertain, "allow");
+    assert.equal((await store.loadSettings(cwd, true)).settings.uncertain, "deny");
   });
 
   it("switches the gate scope, and persists it", async () => {

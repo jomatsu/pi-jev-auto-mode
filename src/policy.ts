@@ -45,6 +45,7 @@ export interface CommandPattern {
 export const SAFE_COMMANDS: readonly string[] = [
   // Shell state and navigation
   "pwd",
+  "cd*",
   "ls*",
   "tree*",
   "whoami",
@@ -390,6 +391,24 @@ export function isScopedLocalDeletionCommand(command: string, cwd: string): bool
 /** Read-only built-ins only: the commands the gate can vouch for on its own. */
 export function isReadOnlyCommand(command: string): boolean {
   return matchesAnyCommandPattern(command, SAFE_COMMANDS, false) !== undefined;
+}
+
+/**
+ * A chain of read-only commands, such as `cd src && ls -la && git log`.
+ *
+ * Agents chain commands constantly, and a single `&&` would otherwise take an
+ * otherwise harmless line out of the fast path and into a judgment round trip.
+ * Every segment must be read-only on its own; `curl … | sh` splits into `curl …`
+ * (not on the list) and `sh` (not on the list), so it is still judged, and a
+ * segment containing a redirection fails the matcher anyway.
+ */
+export function isReadOnlyCommandChain(command: string): boolean {
+  const segments = command
+    .split(/&&|\|\||;|\||\n/)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+  if (segments.length === 0) return false;
+  return segments.every((segment) => isReadOnlyCommand(segment));
 }
 
 /**

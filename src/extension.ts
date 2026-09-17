@@ -41,7 +41,7 @@ import {
   dangerousReasons,
   evaluateUserCommandRules,
   hardDenyReasons,
-  isReadOnlyCommand,
+  isReadOnlyCommandChain,
   isUserDeclaredSafeCommand,
   PROTECTED_DIRECTORY_SEGMENTS,
   unique,
@@ -79,6 +79,13 @@ export const AUTO_MODE_COMMAND = "jev-auto-mode";
 
 /** The escalation reason for a call no pattern describes, under `gateScope: "all"`. */
 export const NOT_KNOWN_SAFE_REASON = "not on the known-safe list";
+
+/** The engine used when no semantic layer is available. */
+export const MANUAL_ENGINE_ID = "manual";
+
+/** Shown (and used as the block reason) when the gate has no Jev connection. */
+export const NO_ENGINE_MESSAGE =
+  "Not connected to Jev (no TypeSafe API key is set). Run `/jev-auto-mode login` to set a key, or `/jev-auto-mode off` to stop auto mode.";
 
 /** Structural context: what this extension needs from Pi, and nothing more. */
 export interface GateUi {
@@ -248,7 +255,7 @@ export async function evaluateToolCall(
     const matchedReasons = dangerousReasons(command, ctx.cwd);
     if (matchedReasons.length > 0) {
       reasons = matchedReasons;
-    } else if (isReadOnlyCommand(command)) {
+    } else if (isReadOnlyCommandChain(command)) {
       return undefined;
     } else if (state.settings.gateScope === "matched") {
       return undefined;
@@ -263,6 +270,20 @@ export async function evaluateToolCall(
     );
     if (protectedReasons.length === 0) return undefined;
     reasons = protectedReasons;
+  }
+
+  // Without a key there is nothing to judge with. Say so and stop, rather than
+  // letting a call through unjudged or blocking it with an unexplained verdict.
+  if (deps.engine.id === MANUAL_ENGINE_ID) {
+    const rationale = NO_ENGINE_MESSAGE;
+    writeRecord(deps, {
+      call,
+      reasons,
+      status: "blocked",
+      source: "unavailable",
+      rationale,
+    });
+    return { block: true, reason: rationale };
   }
 
   const input: CandidateInput = {
@@ -534,6 +555,9 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
     await rebuildEngine();
     loaded = true;
     updateStatus(ctx, { enabled: state.settings.enabled, engineId: deps.engine.id, scope: state.scope });
+    if (state.settings.enabled && deps.engine.id === MANUAL_ENGINE_ID) {
+      ctx.ui.notify(NO_ENGINE_MESSAGE, "warning");
+    }
   };
 
   const save = async (ctx: GateContext): Promise<void> => {

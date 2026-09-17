@@ -92,8 +92,8 @@ describe("threshold settings", () => {
 });
 
 describe("JevAutoModeStore", () => {
-  it("defaults to resolving the uncertain band as a block", async () => {
-    assert.equal(DEFAULT_SETTINGS.uncertain, "deny");
+  it("defaults to passing an unclear answer rather than blocking it", () => {
+    assert.equal(DEFAULT_SETTINGS.uncertain, "allow");
   });
 
   it("starts from the defaults when nothing is configured", async () => {

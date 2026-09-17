@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- **An unclear answer passes by default.** `uncertain` defaulted to `deny`, which meant a
+  judgment the model was unsure about stopped the call. That is the interruption an auto mode
+  exists to remove; clear rejections still block. `uncertain deny` and `uncertain ask` remain
+  available for anyone who wants the stricter behaviour.
+- **Without a key the gate says so and stops**, instead of inventing a verdict and blocking with
+  an unexplained reason. The message names the fix: `/jev-auto-mode login`, or
+  `/jev-auto-mode off`. The footer reads `🛡 jev no key` in that state, and the session start
+  warns once.
+- **A chain of read-only commands is read-only.** `cd src && ls -la && git log -3` was judged as
+  a whole because the allowlist rejected any command containing shell control syntax, so agents
+  paid a judgment round trip for their most common line. Each segment is now checked on its own,
+  and `cd` is allowed. A chain containing anything else (`curl … | sh`) is still judged.
+
 
 ## 0.4.0
 

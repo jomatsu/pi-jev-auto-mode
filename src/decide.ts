@@ -75,9 +75,8 @@ export interface DecisionEngine {
 /**
  * Milestone-1 engine: no semantic judgment at all.
  *
- * Every candidate is reported as `uncertain`, which means "ask the user when a UI
- * exists, block otherwise". That keeps the deterministic layer shippable and
- * verifiable on its own, and it fails in the safe direction.
+ * The gate checks for this engine before judging: with no key there is nothing to
+ * judge with, so it says so and blocks the call instead of inventing a verdict.
  */
 export function createManualEngine(): DecisionEngine {
   return {

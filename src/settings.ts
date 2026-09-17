@@ -28,7 +28,7 @@ export interface JevAutoModeSettings {
   readonly extraProtectedPaths: readonly string[];
   /** Shared state + questions budget guard, in characters. */
   readonly maxStateCharacters: number;
-  /** What a middle-band judgment means. Default `deny`: no user confirmation. */
+  /** What a middle-band judgment means. Default `allow`: no user confirmation. */
   readonly uncertain: UncertainAction;
   /**
    * Which calls reach the semantic layer.
@@ -52,10 +52,11 @@ export type SettingsScope = "global" | "project";
 /**
  * How a judgment that lands in the middle band is resolved.
  *
- * `deny` (the default) means the gate never takes over the screen: Jev's probability
- * is the whole answer, and "not sure" fails closed like every other undecidable
- * state. `ask` hands the call to the user, which contradicts the point of an auto
- * mode and is therefore opt-in. `allow` trusts the middle band.
+ * `allow` (the default) keeps an auto mode useful: Jev blocks what it can clearly
+ * reject and lets an unclear answer through, so the gate never interrupts. `deny`
+ * is the conservative alternative for anyone who wants "not sure" to stop a call.
+ * `ask` hands the call to the user, which contradicts the point of an auto mode and
+ * is therefore not the default.
  */
 export type UncertainAction = "deny" | "ask" | "allow";
 
@@ -86,7 +87,7 @@ export const DEFAULT_SETTINGS: JevAutoModeSettings = {
   disallowedCommands: [],
   extraProtectedPaths: [],
   maxStateCharacters: 120_000,
-  uncertain: "deny",
+  uncertain: "allow",
   gateScope: "all",
   thresholds: {},
 };
