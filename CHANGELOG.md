@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.0
+
+**The semantic layer now sees everything the deterministic layer cannot vouch for.**
+
+- `gateScope` (default `all`) replaces the denylist as the way calls are selected. A
+  dangerous pattern can only recognise a shape someone wrote down first: a request that uploads
+  a file (`curl -d @...`) once ran with no judgment at all because no pattern described it, and
+  adding patterns to a denylist is a race that never ends. Under `all`, the deterministic layer
+  names what it can vouch for and everything else is judged. `matched` keeps the old behaviour.
+- Read-only inspection is now a real fast path, because under `all` it carries the load that the
+  denylist used to carry: `cat`, `head`, `tail`, `wc`, `find`, `jq`, `diff`, `sort`, `stat`,
+  version probes, and read-only git subcommands. Destructive variants (`find -delete`,
+  `git tag -d`, `push --force`) still match dangerous patterns and are judged.
+- The user's `safeCommands` outranks a dangerous-pattern match; the built-in read-only list does
+  not, so `grep secret ~/.ssh/id_ed25519` is judged even though `grep` is read-only.
+- `/jev-auto-mode scope all|matched` shows and changes it. `Escalated:` replaces `Matched:` in
+  the confirmation dialog, because under `all` the reasons are not all pattern matches.
+
 ## 0.3.0
 
 The 0.2.0 default resolved the middle band as a block, but two conditions were still

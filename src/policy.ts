@@ -43,15 +43,73 @@ export interface CommandPattern {
  * `safeCommands` setting, where the choice is explicit and local.
  */
 export const SAFE_COMMANDS: readonly string[] = [
+  // Shell state and navigation
+  "pwd",
+  "ls*",
+  "tree*",
+  "whoami",
+  "hostname",
+  "uname*",
+  "date",
+  // Reading files and stdin. Shell redirection and pipes are rejected by the matcher,
+  // and a credential path is caught by the dangerous patterns before this list, so
+  // `cat*` cannot read a secret out of the gate's sight.
+  "cat*",
+  "bat*",
+  "head*",
+  "tail*",
+  "less*",
+  "wc*",
+  "file*",
+  "stat*",
+  "realpath*",
+  "readlink*",
+  "basename*",
+  "dirname*",
+  "du*",
+  "df*",
+  // `find -delete` and `find -exec` match dangerous patterns and are judged first.
+  "find*",
+  // Searching and transforming text without writing files
+  "grep*",
+  "rg*",
+  "ag*",
+  "jq*",
+  "diff*",
+  "cmp*",
+  "sort*",
+  "uniq*",
+  "cut*",
+  "column*",
+  "nl*",
+  "xxd*",
+  // Interpreter and tool versions
+  "node --version*",
+  "npm --version*",
+  "python --version*",
+  "python3 --version*",
+  "uv --version*",
+  "go version*",
+  "cargo --version*",
+  "gh --version*",
+  // Git inspection. Destructive variants (`tag -d`, `branch -D`, `clean -f`,
+  // `push --force`) match dangerous patterns and are judged before this list.
   "git status*",
   "git diff*",
   "git log*",
   "git show*",
   "git branch",
-  "ls*",
-  "pwd",
-  "rg*",
-  "grep*",
+  "git remote",
+  "git remote -v",
+  "git blame*",
+  "git shortlog*",
+  "git describe*",
+  "git rev-parse*",
+  "git ls-files*",
+  "git ls-tree*",
+  "git worktree list*",
+  "git stash list*",
+  "git tag",
 ];
 
 /**
@@ -329,11 +387,26 @@ export function isScopedLocalDeletionCommand(command: string, cwd: string): bool
   return isScopedRmCommand(command, cwd) || isScopedFindDeleteCommand(command, cwd);
 }
 
+/** Read-only built-ins only: the commands the gate can vouch for on its own. */
+export function isReadOnlyCommand(command: string): boolean {
+  return matchesAnyCommandPattern(command, SAFE_COMMANDS, false) !== undefined;
+}
+
+/**
+ * Patterns the user declared safe.
+ *
+ * Kept separate from the built-in list because the two have different standing: a
+ * user declaration outranks a dangerous-pattern match, while the built-in read-only
+ * list does not (`grep secret ~/.ssh/id_ed25519` looks like reading and must still be
+ * judged).
+ */
+export function isUserDeclaredSafeCommand(command: string, safeCommands: readonly string[]): boolean {
+  return matchesAnyCommandPattern(command, safeCommands, false) !== undefined;
+}
+
+/** Either list. Convenience for callers that do not need the distinction. */
 export function isSafeCommand(command: string, extraPatterns: readonly string[] = []): boolean {
-  return (
-    matchesAnyCommandPattern(command, SAFE_COMMANDS, false) !== undefined ||
-    matchesAnyCommandPattern(command, extraPatterns, false) !== undefined
-  );
+  return isReadOnlyCommand(command) || isUserDeclaredSafeCommand(command, extraPatterns);
 }
 
 /**

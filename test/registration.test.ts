@@ -317,6 +317,22 @@ describe("command wiring", () => {
     assert.equal((await store.loadSettings(cwd, true)).settings.uncertain, "allow");
   });
 
+  it("switches the gate scope, and persists it", async () => {
+    const { cwd, store, harness } = await setup();
+    const command = harness.commands.get(AUTO_MODE_COMMAND);
+    assert.ok(command);
+
+    await command.handler("scope", createContext(harness, cwd));
+    assert.match(harness.notifications.at(-1)?.message ?? "", /gate scope: all/);
+
+    await command.handler("scope matched", createContext(harness, cwd));
+    assert.equal((await store.loadSettings(cwd, true)).settings.gateScope, "matched");
+
+    await command.handler("scope sometimes", createContext(harness, cwd));
+    assert.equal(harness.notifications.at(-1)?.type, "error");
+    assert.equal((await store.loadSettings(cwd, true)).settings.gateScope, "matched");
+  });
+
   it("tunes a threshold through the picker", async () => {
     const { cwd, store, harness } = await setup();
     const command = harness.commands.get(AUTO_MODE_COMMAND);

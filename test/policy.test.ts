@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   classifyWriteTarget,
   dangerousReasons,
+  isReadOnlyCommand,
   evaluateUserCommandRules,
   hardDenyReasons,
   isSafeCommand,
@@ -115,6 +116,29 @@ describe("safe commands", () => {
   it("recognizes read-only inspection", () => {
     assert.equal(isSafeCommand("git status --short"), true);
     assert.equal(isSafeCommand("rg -n TODO src"), true);
+  });
+
+  it("covers everyday read-only inspection", () => {
+    for (const command of [
+      "wc -l src/index.ts",
+      "cat README.md",
+      "head -20 src/ui.ts",
+      "find . -name '*.ts'",
+      "jq . package.json",
+      "node --version",
+      "git remote -v",
+      "diff a.txt b.txt",
+    ]) {
+      assert.equal(isReadOnlyCommand(command), true, command);
+    }
+  });
+
+  it("leaves destructive variants of those same commands to be judged", () => {
+    // The dangerous-pattern check runs before the read-only list in the gate, so a
+    // read-only command name cannot carry a destructive variant through.
+    assert.deepEqual(dangerousReasons("find . -delete", CWD), ["find delete"]);
+    assert.deepEqual(dangerousReasons("git tag -d v1", CWD), ["git tag delete"]);
+    assert.deepEqual(dangerousReasons("cat ~/.ssh/id_ed25519", CWD), ["reads a credential file"]);
   });
 
   it("does not fast-path anything that runs project code", () => {

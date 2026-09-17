@@ -30,6 +30,13 @@ describe("parseSettingsPatch", () => {
     assert.deepEqual(patch, { allowedCommands: ["ok"] });
   });
 
+  it("defaults to judging everything the deterministic layer cannot vouch for", () => {
+    assert.equal(DEFAULT_SETTINGS.gateScope, "all");
+    assert.equal(parseSettingsPatch({ gateScope: "matched" }).gateScope, "matched");
+    assert.equal(parseSettingsPatch({ gateScope: "all" }).gateScope, "all");
+    assert.equal(parseSettingsPatch({ gateScope: "sometimes" }).gateScope, undefined);
+  });
+
   it("accepts only known uncertain actions", () => {
     assert.equal(parseSettingsPatch({ uncertain: "deny" }).uncertain, "deny");
     assert.equal(parseSettingsPatch({ uncertain: "ask" }).uncertain, "ask");

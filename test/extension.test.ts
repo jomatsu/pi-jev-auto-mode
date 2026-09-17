@@ -142,6 +142,13 @@ describe("fast path", () => {
     assert.deepEqual(inputs[0]?.reasons, ["package execution or publish"]);
   });
 
+  it("lets a read-only command through without asking the engine", async () => {
+    const { deps, inputs } = createDeps();
+    const result = await evaluateToolCall(bash("ls -la"), createContext(), stateWith(), deps);
+    assert.equal(result, undefined);
+    assert.deepEqual(inputs, []);
+  });
+
   it("escalates a write to a configured protected path", async () => {
     const { deps, inputs } = createDeps();
     await evaluateToolCall(
@@ -190,9 +197,58 @@ describe("deterministic layer wins before the engine", () => {
     assert.deepEqual(inputs, []);
   });
 
-  it("treats an in-repository deletion scoped to a subdirectory as local", async () => {
+  it("judges an in-repository deletion under the default scope", async () => {
+    // Scoped local deletion is not read-only, so `gateScope: all` sends it to Jev.
     const { deps, inputs } = createDeps();
-    const result = await evaluateToolCall(bash("rm -rf build"), createContext(), stateWith(), deps);
+    await evaluateToolCall(bash("rm -rf build"), createContext(), stateWith(), deps);
+    assert.deepEqual(inputs[0]?.reasons, ["not on the known-safe list"]);
+  });
+
+  it("leaves it on the fast path under the matched scope", async () => {
+    const { deps, inputs } = createDeps();
+    const result = await evaluateToolCall(bash("rm -rf build"), createContext(), stateWith({ gateScope: "matched" }), deps);
+    assert.equal(result, undefined);
+    assert.deepEqual(inputs, []);
+  });
+});
+
+describe("gate scope", () => {
+  it("judges a call no pattern describes, and says why", async () => {
+    // The hole this scope exists for: `curl -d @file` matched no pattern and once ran
+    // unjudged. Nothing else about it changed, so no pattern would have caught it.
+    const { deps, inputs } = createDeps();
+    await evaluateToolCall(bash("mkdir -p /tmp/notes"), createContext(), stateWith(), deps);
+    assert.deepEqual(inputs[0]?.reasons, ["not on the known-safe list"]);
+  });
+
+  it("does not judge such a call under the matched scope", async () => {
+    const { deps, inputs } = createDeps();
+    const result = await evaluateToolCall(
+      bash("mkdir -p /tmp/notes"),
+      createContext(),
+      stateWith({ gateScope: "matched" }),
+      deps,
+    );
+    assert.equal(result, undefined);
+    assert.deepEqual(inputs, []);
+  });
+
+  it("judges a read-only command that reaches a credential path", async () => {
+    // `grep secret ~/.ssh/...` looks like reading, and the built-in read-only list would
+    // otherwise fast-path it. A dangerous match is checked first.
+    const { deps, inputs } = createDeps();
+    await evaluateToolCall(bash("grep -r key ~/.ssh/id_ed25519"), createContext(), stateWith(), deps);
+    assert.deepEqual(inputs[0]?.reasons, ["reads a credential file"]);
+  });
+
+  it("still lets a user-declared safe command outrank a dangerous match", async () => {
+    const { deps, inputs } = createDeps();
+    const result = await evaluateToolCall(
+      bash("grep -r TODO src"),
+      createContext(),
+      stateWith({ safeCommands: ["grep -r TODO*"] }),
+      deps,
+    );
     assert.equal(result, undefined);
     assert.deepEqual(inputs, []);
   });

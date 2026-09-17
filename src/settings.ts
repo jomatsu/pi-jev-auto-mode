@@ -31,6 +31,14 @@ export interface JevAutoModeSettings {
   /** What a middle-band judgment means. Default `deny`: no user confirmation. */
   readonly uncertain: UncertainAction;
   /**
+   * Which calls reach the semantic layer.
+   *
+   * `all` (the default) sends every call the deterministic layer cannot vouch for
+   * to Jev, so an unrecognised shape is still judged. `matched` only judges calls
+   * that match a dangerous-command pattern, which is the older denylist behaviour.
+   */
+  readonly gateScope: GateScope;
+  /**
    * Per-rule probability thresholds, overriding the calibrated defaults.
    *
    * Keys are rule ids. An unknown key is kept but has no effect, so a typo is
@@ -53,6 +61,22 @@ export type UncertainAction = "deny" | "ask" | "allow";
 
 export const UNCERTAIN_ACTIONS: readonly UncertainAction[] = ["deny", "ask", "allow"];
 
+/**
+ * How far the semantic layer reaches.
+ *
+ * A denylist can only recognise the shapes someone thought of first: a request that
+ * uploads a file (`curl -d @...`) once ran with no judgment at all because no pattern
+ * described it. `all` inverts that: the deterministic layer names what it can vouch
+ * for, and everything else is judged.
+ */
+export type GateScope = "all" | "matched";
+
+export const GATE_SCOPES: readonly GateScope[] = ["all", "matched"];
+
+export function isGateScope(value: unknown): value is GateScope {
+  return typeof value === "string" && GATE_SCOPES.includes(value as GateScope);
+}
+
 export const DEFAULT_SETTINGS: JevAutoModeSettings = {
   enabled: true,
   timeoutMs: 4000,
@@ -63,6 +87,7 @@ export const DEFAULT_SETTINGS: JevAutoModeSettings = {
   extraProtectedPaths: [],
   maxStateCharacters: 120_000,
   uncertain: "deny",
+  gateScope: "all",
   thresholds: {},
 };
 
@@ -161,6 +186,10 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
 
   if (record.uncertain !== undefined && isUncertainAction(record.uncertain)) {
     patch.uncertain = record.uncertain;
+  }
+
+  if (record.gateScope !== undefined && isGateScope(record.gateScope)) {
+    patch.gateScope = record.gateScope;
   }
 
   const safeCommands = record.safeCommands === undefined ? undefined : readStringArray(record.safeCommands);

@@ -41,7 +41,8 @@ import {
   dangerousReasons,
   evaluateUserCommandRules,
   hardDenyReasons,
-  isSafeCommand,
+  isReadOnlyCommand,
+  isUserDeclaredSafeCommand,
   PROTECTED_DIRECTORY_SEGMENTS,
   unique,
 } from "./policy.ts";
@@ -54,6 +55,7 @@ import {
 import {
   DEFAULT_SETTINGS,
   JevAutoModeStore,
+  isGateScope,
   isUncertainAction,
   parseThreshold,
   type JevAutoModeSettings,
@@ -62,6 +64,7 @@ import {
 import {
   buildConfirmationDialog,
   describeSettings,
+  GATE_SCOPE_EXPLANATION,
   UNCERTAIN_EXPLANATION,
   formatRuleTable,
   POLICY_HEADER,
@@ -73,6 +76,9 @@ import {
 
 export const AUTO_MODE_FLAG = "jev-auto-mode";
 export const AUTO_MODE_COMMAND = "jev-auto-mode";
+
+/** The escalation reason for a call no pattern describes, under `gateScope: "all"`. */
+export const NOT_KNOWN_SAFE_REASON = "not on the known-safe list";
 
 /** Structural context: what this extension needs from Pi, and nothing more. */
 export interface GateUi {
@@ -233,12 +239,22 @@ export async function evaluateToolCall(
       });
     }
 
-    // Read-only built-ins plus the user's own safe commands run without a record.
-    if (isSafeCommand(command, state.settings.safeCommands)) return undefined;
+    // A command the user declared safe is theirs to declare: it runs silently, and
+    // that declaration also outranks a dangerous-pattern match.
+    if (isUserDeclaredSafeCommand(command, state.settings.safeCommands)) return undefined;
 
-    reasons = dangerousReasons(command, ctx.cwd);
-    // Nothing dangerous matched: this is the fast path the gate exists to preserve.
-    if (reasons.length === 0) return undefined;
+    // A dangerous pattern is a reason to judge, even when the command looks like
+    // reading (`grep secret ~/.ssh/...`), so it comes before the read-only fast path.
+    const matchedReasons = dangerousReasons(command, ctx.cwd);
+    if (matchedReasons.length > 0) {
+      reasons = matchedReasons;
+    } else if (isReadOnlyCommand(command)) {
+      return undefined;
+    } else if (state.settings.gateScope === "matched") {
+      return undefined;
+    } else {
+      reasons = [NOT_KNOWN_SAFE_REASON];
+    }
   } else {
     const protectedReasons = unique(
       [call.protectedReason, call.outsideCwd ? "write outside the working directory" : undefined].filter(
@@ -536,7 +552,10 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
       const value = String(argumentPrefix ?? "");
       const tokens = value.split(/\s+/).filter(Boolean);
       if (tokens.length === 0) {
-        return ["status", "on", "off", "policy", "threshold", "login", "logout"].map((item) => ({ value: item, label: item }));
+        return ["status", "on", "off", "policy", "threshold", "scope", "uncertain", "login", "logout"].map((item) => ({
+          value: item,
+          label: item,
+        }));
       }
       if (tokens[0] === "threshold") {
         if (tokens.length <= 1) {
@@ -684,13 +703,29 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
         return;
       }
 
-      if (value === "threshold" || value === "threshold list") {
-        ctx.ui.notify(formatRuleTable(DEFAULT_RULES, state.settings.thresholds, observed), "info");
+      if (value === "threshold" || value === "threshold list") {        ctx.ui.notify(formatRuleTable(DEFAULT_RULES, state.settings.thresholds, observed), "info");
         return;
       }
 
       if (value === "threshold edit") {
         await editThreshold(ctx, state, observed, save, rebuildEngine);
+        return;
+      }
+
+      if (value.startsWith("scope")) {
+        const argument = value.slice("scope".length).trim();
+        if (argument === "") {
+          ctx.ui.notify(`gate scope: ${state.settings.gateScope}\n\n${GATE_SCOPE_EXPLANATION}`, "info");
+          return;
+        }
+        if (!isGateScope(argument)) {
+          ctx.ui.notify(`Expected one of all, matched.\n\n${GATE_SCOPE_EXPLANATION}`, "error");
+          return;
+        }
+
+        state.settings = { ...state.settings, gateScope: argument };
+        await save(gateContext);
+        ctx.ui.notify(`gate scope now: ${argument}\n\n${GATE_SCOPE_EXPLANATION}`, "info");
         return;
       }
 

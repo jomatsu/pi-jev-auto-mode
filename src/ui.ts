@@ -44,6 +44,7 @@ export function describeSettings(settings: JevAutoModeSettings, scope: SettingsS
     `extra protected paths: ${settings.extraProtectedPaths.length}`,
     `max state characters: ${settings.maxStateCharacters}`,
     `uncertain band: ${settings.uncertain}`,
+    `gate scope: ${settings.gateScope}`,
   ].join("\n");
 }
 
@@ -127,7 +128,7 @@ export function buildConfirmationDialog(parts: ConfirmationParts): string {
       ...(hiddenNote === undefined ? [] : [hiddenNote]),
       ...(parts.path === undefined ? [] : [parts.path]),
       "",
-      `Matched: ${parts.reasons.join(", ")}`,
+      `Escalated: ${parts.reasons.join(", ")}`,
       parts.rationale,
     ].join("\n"),
     CONFIRMATION_MAX_LINES,
@@ -148,6 +149,16 @@ export const USAGE_TEXT = [
   "  /jev-auto-mode threshold edit      pick a rule and type a value",
   "  /jev-auto-mode uncertain            show what the middle band resolves to",
   "  /jev-auto-mode uncertain deny|ask|allow",
+  "  /jev-auto-mode scope all|matched    which calls reach Jev",
+].join("\n");
+
+export const GATE_SCOPE_EXPLANATION = [
+  "How far the semantic layer reaches.",
+  "  all     - judge everything the deterministic layer cannot vouch for (default).",
+  "            Read-only commands, user-declared safe commands, and in-project",
+  "            unprotected edits stay on the fast path.",
+  "  matched - judge only calls that match a dangerous-command pattern. Faster,",
+  "            but a shape nobody wrote a pattern for runs unjudged.",
 ].join("\n");
 
 export const UNCERTAIN_EXPLANATION = [
