@@ -1,11 +1,11 @@
 /**
- * Shapes shared with the JEV layer.
+ * Shapes shared with the Jev layer.
  *
  * These are types only. The transport, question set, and decision mapping live in
  * this directory too, but they arrive in a later milestone.
  */
 
-/** A JSON value accepted by the JEV `state` field. `Date` / `Map` are not included. */
+/** A JSON value accepted by the Jev `state` field. `Date` / `Map` are not included. */
 export type JevJson = string | number | boolean | null | JevJson[] | { [key: string]: JevJson };
 
 /**

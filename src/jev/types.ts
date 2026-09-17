@@ -1,5 +1,5 @@
 /**
- * The JEV transport contract.
+ * The Jev transport contract.
  *
  * The interface is deliberately narrow and its result type is normalized: the
  * official SDK's exception hierarchy stops at `transport.ts`, so the engine and

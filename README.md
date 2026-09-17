@@ -1,12 +1,12 @@
 # pi-jev-auto-mode
 
 Auto mode for the [Pi coding agent](https://github.com/earendil-works/pi-mono) backed by
-**JEV** (TypeSafe System One, a decision-only model). Pi has no built-in permission system,
+**Jev** (TypeSafe System One, a decision-only model). Pi has no built-in permission system,
 so a gate either exists as an extension or it does not exist at all. This one judges
 `bash`, `write`, and `edit` tool calls semantically and **fails closed** whenever a decision
 cannot be made.
 
-> **Status: milestones 1–3 are complete.** The deterministic envelope, the JEV engine,
+> **Status: milestones 1–3 are complete.** The deterministic envelope, the Jev engine,
 > real-API calibration, settings, policy notes, per-rule threshold tuning, and decision
 > records are implemented and tested (157 tests, no network). See [`docs/design.md`](./docs/design.md) for
 > the roadmap and [`docs/calibration.md`](./docs/calibration.md) for the measured
@@ -18,22 +18,22 @@ The gate has two layers, in this order:
 
 1. **Deterministic policy** — hard-deny commands, your allow/deny patterns, dangerous-command
    detection, protected paths. Hard-deny is never handed to the semantic layer.
-2. **Semantic judgment (JEV)** — only the calls the first layer escalated.
+2. **Semantic judgment (Jev)** — only the calls the first layer escalated.
 
 ```
-hard-deny               → block (never reaches JEV)
+hard-deny               → block (never reaches Jev)
 your deny pattern       → block
 your allow pattern      → allow
 safe read-only command  → run, no record
 in-project write/edit   → run, no record
-everything else         → JEV: allow · block · confirm · block-if-undecidable
+everything else         → Jev: allow · block · confirm · block-if-undecidable
 ```
 
 `rm -rf build` inside the repository is recognized as a scoped local deletion. A write to
 `.env`, `.git/`, `~/.ssh`, `.pi/`, `.github/workflows/`, or `AGENTS.md` is escalated even when
 the path is inside the working directory.
 
-### How JEV decides
+### How Jev decides
 
 Conditions are phrased so the safe state is "yes", and each one is classified by
 `mode` and `severity`:
@@ -91,7 +91,7 @@ Packages are discovered in the [package gallery](https://pi.dev/packages) throug
 pi --jev-auto-mode        start with auto mode enabled
 ```
 
-The semantic layer needs a [TypeSafe](https://typesafe.ai/) API key. JEV is early access, so an
+The semantic layer needs a [TypeSafe](https://typesafe.ai/) API key. Jev is early access, so an
 account may be waitlisted; **the gate still works without one**, running in ask-only mode
 (confirm in a UI, block without one) rather than silently allowing everything.
 
@@ -231,10 +231,10 @@ Layout:
 The deterministic pattern catalogue is adapted from
 [`@nilskluewer/pi-auto-permission-gate`](https://github.com/nilskluewer/pi-auto-permission-gate)
 (MIT), and the three-layer structure (fast paths → hard rules → classifier) follows the same
-extension and Qwen Code's Auto Mode. The JEV design constraints (fail closed, two-sided
+extension and Qwen Code's Auto Mode. The Jev design constraints (fail closed, two-sided
 thresholds that keep the middle band meaningful, one request per judgment) come from measuring
 the API directly — [`docs/calibration.md`](./docs/calibration.md) records the measurements and
-the reasoning. Nothing here depends on a wrapper library: the JEV layer is written against the
+the reasoning. Nothing here depends on a wrapper library: the Jev layer is written against the
 official SDK.
 
 ## License

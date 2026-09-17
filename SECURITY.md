@@ -6,7 +6,7 @@ This extension stands between a coding agent and your shell, so its own failure 
 
 Open a private security advisory on the repository, or an issue if the report does not need to
 stay private. Please include the tool call, the recorded decision (`/jev-auto-mode` records
-are expandable in the transcript), and the JEV probabilities if you have them.
+are expandable in the transcript), and the Jev probabilities if you have them.
 
 ## What is in scope
 
@@ -23,7 +23,7 @@ The gate is two layers and the order is the enforcement:
 1. A deterministic envelope (hard-deny, user rules, dangerous-command patterns, protected
    paths). Hard-deny returns before the semantic layer is constructed, so a probabilistic
    verdict can never resurrect it.
-2. JEV, which only sees calls the first layer escalated.
+2. Jev, which only sees calls the first layer escalated.
 
 Anything that cannot be decided — no key, timeout, malformed response, a response missing an
 answer, cancellation, an oversized request — blocks. See

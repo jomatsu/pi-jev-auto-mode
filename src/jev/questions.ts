@@ -1,7 +1,7 @@
 /**
  * The question set.
  *
- * Two things learned from real JEV answers (see `docs/calibration.md`) shaped
+ * Two things learned from real Jev answers (see `docs/calibration.md`) shaped
  * this design:
  *
  * 1. **"Absence of a hazard" questions cluster between 0.75 and 0.98.** Asking
@@ -15,7 +15,7 @@
  *    for". That is the `required` condition. Everything else answers "is a
  *    specific bad thing happening", and a clear "yes, it is" should block.
  *
- * JEV evaluates questions in parallel and independently and does not send the
+ * Jev evaluates questions in parallel and independently and does not send the
  * question keys to the model, so each instruction must stand alone.
  */
 

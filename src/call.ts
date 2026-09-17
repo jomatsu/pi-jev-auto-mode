@@ -1,5 +1,5 @@
 /**
- * Turn a Pi tool call into the shape JEV will judge.
+ * Turn a Pi tool call into the shape Jev will judge.
  *
  * What leaves this module is what a third party (TypeSafe) gets to see, so the
  * boundary is explicit: the command text and the target path are sent, file
@@ -143,7 +143,7 @@ export const NO_POLICY_PLACEHOLDER = "(no user policy configured)";
 export const NO_INTENT_PLACEHOLDER = "(no recent user message available)";
 
 /**
- * Assemble the JEV request state.
+ * Assemble the Jev request state.
  *
  * The user policy is `context` (session-scoped) so conditions can name it, and
  * the call plus the user intent are `value` (per-call).

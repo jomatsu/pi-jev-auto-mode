@@ -3,7 +3,7 @@
  *
  * The gate itself (ordering, blocking, recording) is deterministic. Everything
  * probabilistic sits behind `DecisionEngine`, so the extension can be tested
- * without a network and so the JEV implementation can be swapped or disabled
+ * without a network and so the Jev implementation can be swapped or disabled
  * without touching the safety-critical path.
  */
 

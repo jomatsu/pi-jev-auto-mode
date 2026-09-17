@@ -2,7 +2,7 @@
  * End-to-end gate run over the fixture set.
  *
  * Unlike `scripts/calibrate.ts`, which calls the engine directly, this drives the
- * real `evaluateToolCall` path with the real JEV transport: the deterministic layer,
+ * real `evaluateToolCall` path with the real Jev transport: the deterministic layer,
  * the semantic layer, the block/ask routing, and the decision record. It is the
  * closest thing to a real tool call that can be run without executing anything.
  *

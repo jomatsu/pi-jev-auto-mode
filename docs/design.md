@@ -16,11 +16,11 @@ Two prior arts shaped the structure:
 | [`@nilskluewer/pi-auto-permission-gate`](https://github.com/nilskluewer/pi-auto-permission-gate) (Pi extension) | hard-deny → user rules → classifier → confirmation → no-UI block; classifier failure is fail-closed; decisions recorded with `pi.appendEntry` (out of LLM context); user policy as a Markdown note; allow patterns disabled for shell control syntax |
 | Qwen Code Auto Mode | three layers: deterministic fast paths and allow rules first, then a classifier; protected "persistence surfaces" (`package.json`, `.github/workflows/`, agent config) always go through the classifier even when the target is inside the workspace |
 
-What is different here: the classifier is **JEV**, a decision-only model (unstructured state in,
+What is different here: the classifier is **Jev**, a decision-only model (unstructured state in,
 typed decisions out). The call is cheap, has no tokens to inject through, and returns calibrated
 probabilities rather than prose that has to be parsed.
 
-JEV facts this design leans on:
+Jev facts this design leans on:
 
 - One request carries many `noul` questions; they are evaluated **in parallel and
   independently**, so adding questions barely changes latency.
@@ -35,13 +35,13 @@ JEV facts this design leans on:
 ```
 tool_call(bash | write | edit)
   ├─ 0. auto mode off / tool not gated        → pass through
-  ├─ 1. hard-deny (deterministic)             → block, no JEV     ┐
-  ├─ 2. user disallow pattern                 → block, no JEV     ├ JEV never sees these
+  ├─ 1. hard-deny (deterministic)             → block, no Jev     ┐
+  ├─ 2. user disallow pattern                 → block, no Jev     ├ Jev never sees these
   ├─ 3. user allow pattern                    → allow (recorded)  ┘
   ├─ 4. read-only command, or user-declared safe command
   │                                           → pass through (silent)
   ├─ 5. in-project write/edit, unprotected    → pass through (silent)
-  └─ 6. JEV: one request, all conditions
+  └─ 6. Jev: one request, all conditions
          ├ every `required` condition satisfied, no hazard rejected → allow
          ├ any `hazard` condition rejected    → block
          ├ any `soft` condition rejected      → block, unless the user's own request covers it
@@ -105,7 +105,7 @@ the published package:
 
 - `scripts/calibrate.ts` sends the fixture set and prints every condition's probability.
 - `scripts/e2e.ts` runs the same fixtures through the real gate path (deterministic layer,
-  real JEV, block/ask routing, records) and compares the decision against the expectation.
+  real Jev, block/ask routing, records) and compares the decision against the expectation.
 
 ## Remaining work
 

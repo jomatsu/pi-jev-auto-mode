@@ -16,7 +16,7 @@ import { dirname, join } from "node:path";
 
 export interface JevAutoModeSettings {
   readonly enabled: boolean;
-  /** Per-attempt JEV timeout. Kept short: this is a gate, not a batch job. */
+  /** Per-attempt Jev timeout. Kept short: this is a gate, not a batch job. */
   readonly timeoutMs: number;
   /** Retries after the first attempt. */
   readonly maxRetries: number;
@@ -226,7 +226,7 @@ export class JevAutoModeStore {
     await writeFileAtomic(path, `${JSON.stringify(settings, null, 2)}\n`);
   }
 
-  /** User-authored policy notes. Advisory input to JEV, never a hard rule. */
+  /** User-authored policy notes. Advisory input to Jev, never a hard rule. */
   async loadPolicyNotes(): Promise<string> {
     try {
       return (await readFile(this.policyNotesPath(), "utf8")).slice(0, MAX_POLICY_NOTES_LENGTH);

@@ -1,7 +1,7 @@
 /**
  * Real-API calibration run.
  *
- * Sends a fixture set of tool calls through the actual JEV questions and prints
+ * Sends a fixture set of tool calls through the actual Jev questions and prints
  * every condition's probability, so thresholds can be chosen from data instead of
  * taste. Requires `TYPESAFE_API_KEY`.
  *

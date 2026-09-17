@@ -1,7 +1,7 @@
 /**
  * Deterministic policy layer.
  *
- * Everything in this module runs before JEV. Hard-deny rules are deliberate,
+ * Everything in this module runs before Jev. Hard-deny rules are deliberate,
  * non-overridable, and must never be reachable by a probabilistic decision: they
  * are the floor that keeps a mis-calibrated semantic verdict from becoming an
  * approved `rm -rf /`.
@@ -13,9 +13,9 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
 export interface CommandRuleConfig {
-  /** Shell-style `*` / `?` patterns that auto-approve without asking JEV. */
+  /** Shell-style `*` / `?` patterns that auto-approve without asking Jev. */
   readonly allowedCommands: readonly string[];
-  /** Shell-style patterns that block immediately, before JEV. */
+  /** Shell-style patterns that block immediately, before Jev. */
   readonly disallowedCommands: readonly string[];
 }
 
@@ -196,7 +196,7 @@ const DANGEROUS_PATTERNS: readonly CommandPattern[] = [
 ];
 
 /**
- * Catastrophic targets. These are never handed to JEV: a look-alike approval
+ * Catastrophic targets. These are never handed to Jev: a look-alike approval
  * would be unsafe even when the surrounding conversation seems to ask for it.
  *
  * The list is deliberately small. Everything else belongs to the semantic layer,
@@ -437,7 +437,7 @@ export interface WriteTarget {
  * Classify a write/edit target lexically.
  *
  * A symlink inside the working directory can still point outside it; resolving
- * that needs a filesystem call and belongs to the JEV layer's state building.
+ * that needs a filesystem call and belongs to the Jev layer's state building.
  */
 export function classifyWriteTarget(
   inputPath: string,

@@ -7,7 +7,7 @@
  *   p <= 1 - t      → rejected ("the opposite is as certain as a pass would be")
  *   in between      → the middle band
  *
- * The middle band is not a bug to be squeezed out. Measured JEV answers sit at
+ * The middle band is not a bug to be squeezed out. Measured Jev answers sit at
  * 0.98/0.02 for clear cases but also at 0.85–0.95 for conditions that are clear
  * to a human and merely not certain to the model, so a single high bar would
  * report almost everything as uncertain. What the middle band *means* depends on

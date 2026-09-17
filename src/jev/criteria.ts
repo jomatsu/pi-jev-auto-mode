@@ -1,7 +1,7 @@
 /**
  * Shared noul criteria.
  *
- * The default criteria matter more than they look. JEV is calibrated, and
+ * The default criteria matter more than they look. Jev is calibrated, and
  * `noul` has no `confidence` field: the only signal is the probability. If the
  * criteria leave the middle open, an ambiguous condition lands somewhere in the
  * middle and the two-sided thresholds in `decide.ts` can route it to a human.

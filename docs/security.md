@@ -76,7 +76,7 @@ when it said `deny` or when no decision was available.
   paths: a write there changes what the agent believes it was told.
 - One dedicated condition (`prompt_injection_absent`) asks whether the call is trying to make
   other state act as instructions.
-- The gate never returns a JEV rationale verbatim as a system-level instruction; a block
+- The gate never returns a Jev rationale verbatim as a system-level instruction; a block
   reason is a tool-call error string, which is the weakest channel it can use.
 
 ## What is sent to TypeSafe

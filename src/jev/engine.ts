@@ -1,8 +1,8 @@
 /**
- * The JEV decision engine.
+ * The Jev decision engine.
  *
  * One tool call in, one request out. All conditions for the call travel in the
- * same request because JEV answers them in parallel and independently, so the
+ * same request because Jev answers them in parallel and independently, so the
  * marginal cost of an extra condition is a few tokens rather than a round trip.
  *
  * Everything that can go wrong resolves to `unavailable`, and the caller turns
@@ -43,12 +43,12 @@ export interface JevEngineOptions {
 export const DEFAULT_MAX_STATE_CHARACTERS = 120_000;
 
 const UNAVAILABLE_TEXT: Record<string, string> = {
-  timeout: "the JEV request timed out",
-  network: "the JEV request could not reach the API",
-  http: "the JEV API returned an error status",
-  malformed_response: "the JEV response did not match the questions that were asked",
+  timeout: "the Jev request timed out",
+  network: "the Jev request could not reach the API",
+  http: "the Jev API returned an error status",
+  malformed_response: "the Jev response did not match the questions that were asked",
   state_too_large: "the call description exceeded the request budget",
-  unknown: "the JEV request failed for an unknown reason",
+  unknown: "the Jev request failed for an unknown reason",
 };
 
 export function createJevEngine(options: JevEngineOptions): DecisionEngine {
@@ -99,7 +99,7 @@ export function createJevEngine(options: JevEngineOptions): DecisionEngine {
         return {
           verdict: "unavailable",
           reason: result.reason,
-          rationale: UNAVAILABLE_TEXT[result.reason] ?? UNAVAILABLE_TEXT.unknown ?? "JEV could not decide.",
+          rationale: UNAVAILABLE_TEXT[result.reason] ?? UNAVAILABLE_TEXT.unknown ?? "Jev could not decide.",
           latencyMs,
         };
       }
@@ -109,7 +109,7 @@ export function createJevEngine(options: JevEngineOptions): DecisionEngine {
         return {
           verdict: "unavailable",
           reason: parsed.reason,
-          rationale: UNAVAILABLE_TEXT[parsed.reason] ?? "The JEV response could not be used.",
+          rationale: UNAVAILABLE_TEXT[parsed.reason] ?? "The Jev response could not be used.",
           latencyMs,
         };
       }

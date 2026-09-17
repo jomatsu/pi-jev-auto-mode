@@ -18,7 +18,7 @@ Thirteen fixtures, one request each (6–7 `noul` questions per request), first 
 2026-09-17 against `jev-latest`. Every condition's probability is printed, not just
 the failing ones, because a threshold cannot be chosen without the passing values.
 
-> **Caveat.** This is one sample per fixture. JEV is probabilistic: reruns moved
+> **Caveat.** This is one sample per fixture. Jev is probabilistic: reruns moved
 > some conditions by ±0.05 (for example `local_scope` on the pytest fixture was
 > 0.78 and 0.81 across runs, `path_not_protected` on the `.env` fixture 0.28 and
 > 0.25). Treat the numbers as evidence about *bands*, not as exact values, and

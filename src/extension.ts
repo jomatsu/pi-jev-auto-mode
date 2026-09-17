@@ -1,11 +1,11 @@
 /**
- * JEV auto mode for the Pi coding agent.
+ * Jev auto mode for the Pi coding agent.
  *
  * The gate has two layers, and the order matters:
  *
  *   1. A deterministic policy layer (hard-deny, user rules, dangerous-pattern
  *      detection, protected paths). Hard-deny is not negotiable.
- *   2. A semantic layer (JEV) that only ever sees calls the deterministic layer
+ *   2. A semantic layer (Jev) that only ever sees calls the deterministic layer
  *      decided to escalate, and whose "allow" can never resurrect a hard-denied
  *      call.
  *
@@ -171,7 +171,7 @@ function permit(deps: DecisionDeps, input: RecordInput): undefined {
 
 /** Wraps an engine rationale so the model gets an actionable reason, not a verdict. */
 function blockReason(rationale: string): string {
-  return `JEV auto mode blocked this tool call. ${rationale} Do not repeat the same call unchanged; change the approach or ask the user.`;
+  return `Jev auto mode blocked this tool call. ${rationale} Do not repeat the same call unchanged; change the approach or ask the user.`;
 }
 
 /**
@@ -318,7 +318,7 @@ export async function evaluateToolCall(
       }
 
       const dialog = [
-        "JEV auto mode wants confirmation before this runs.",
+        "Jev auto mode wants confirmation before this runs.",
         "",
         `Tool: ${call.tool}`,
         ...(call.command ? [call.command] : []),
@@ -338,7 +338,7 @@ export async function evaluateToolCall(
           rationale: "The user declined the confirmation.",
           evidence,
         });
-        return { block: true, reason: "Blocked by the user at the JEV auto mode confirmation." };
+        return { block: true, reason: "Blocked by the user at the Jev auto mode confirmation." };
       }
 
       return permit(deps, {
@@ -450,7 +450,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
   };
 
   pi.registerFlag(AUTO_MODE_FLAG, {
-    description: "Start with JEV auto mode enabled",
+    description: "Start with Jev auto mode enabled",
     type: "boolean",
     default: false,
   });
@@ -458,7 +458,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
   registerDecisionEntryRenderer(pi);
 
   pi.registerCommand(AUTO_MODE_COMMAND, {
-    description: "Show or change the JEV auto mode settings",
+    description: "Show or change the Jev auto mode settings",
     getArgumentCompletions: (argumentPrefix) => {
       const value = String(argumentPrefix ?? "");
       const tokens = value.split(/\s+/).filter(Boolean);
@@ -513,7 +513,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
           engineId: deps.engine.id,
           scope: state.scope,
         });
-        ctx.ui.notify(`JEV auto mode ${value === "on" ? "enabled" : "disabled"}.`, "info");
+        ctx.ui.notify(`Jev auto mode ${value === "on" ? "enabled" : "disabled"}.`, "info");
         return;
       }
 
@@ -523,7 +523,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
       }
 
       if (value === "policy edit") {
-        const edited = await ctx.ui.editor("JEV auto mode policy", state.policyNotes || POLICY_HEADER);
+        const edited = await ctx.ui.editor("Jev auto mode policy", state.policyNotes || POLICY_HEADER);
         if (edited === undefined) return;
         await store.savePolicyNotes(edited);
         state.policyNotes = await store.loadPolicyNotes();
@@ -533,7 +533,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
 
       if (value === "policy clear") {
         const confirmed = await ctx.ui.confirm(
-          "Clear JEV auto mode policy notes?",
+          "Clear Jev auto mode policy notes?",
           "The semantic layer will fall back to its built-in criteria.",
         );
         if (!confirmed) return;

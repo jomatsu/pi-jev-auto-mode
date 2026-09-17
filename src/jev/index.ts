@@ -1,5 +1,5 @@
 /**
- * JEV layer: transport, question set, response validation, and the engine.
+ * Jev layer: transport, question set, response validation, and the engine.
  */
 
 export { createJevEngine, DEFAULT_MAX_STATE_CHARACTERS, type JevEngineOptions, type ObservationMeta } from "./engine.ts";

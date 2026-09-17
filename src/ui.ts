@@ -60,7 +60,7 @@ export const USAGE_TEXT = [
 ].join("\n");
 
 export const POLICY_HEADER = [
-  "# JEV auto mode policy",
+  "# Jev auto mode policy",
   "",
   "Free-form notes describing what this machine and these repositories allow.",
   "They are reference material for the semantic judgment: they can justify an",
