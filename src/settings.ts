@@ -28,6 +28,8 @@ export interface JevAutoModeSettings {
   readonly extraProtectedPaths: readonly string[];
   /** Shared state + questions budget guard, in characters. */
   readonly maxStateCharacters: number;
+  /** What a middle-band judgment means. Default `deny`: no user confirmation. */
+  readonly uncertain: UncertainAction;
   /**
    * Per-rule probability thresholds, overriding the calibrated defaults.
    *
@@ -39,6 +41,18 @@ export interface JevAutoModeSettings {
 
 export type SettingsScope = "global" | "project";
 
+/**
+ * How a judgment that lands in the middle band is resolved.
+ *
+ * `deny` (the default) means the gate never takes over the screen: Jev's probability
+ * is the whole answer, and "not sure" fails closed like every other undecidable
+ * state. `ask` hands the call to the user, which contradicts the point of an auto
+ * mode and is therefore opt-in. `allow` trusts the middle band.
+ */
+export type UncertainAction = "deny" | "ask" | "allow";
+
+export const UNCERTAIN_ACTIONS: readonly UncertainAction[] = ["deny", "ask", "allow"];
+
 export const DEFAULT_SETTINGS: JevAutoModeSettings = {
   enabled: true,
   timeoutMs: 4000,
@@ -48,6 +62,7 @@ export const DEFAULT_SETTINGS: JevAutoModeSettings = {
   disallowedCommands: [],
   extraProtectedPaths: [],
   maxStateCharacters: 120_000,
+  uncertain: "deny",
   thresholds: {},
 };
 
@@ -101,6 +116,10 @@ function readThresholds(value: unknown): Readonly<Record<string, number>> | unde
   return thresholds;
 }
 
+export function isUncertainAction(value: unknown): value is UncertainAction {
+  return typeof value === "string" && UNCERTAIN_ACTIONS.includes(value as UncertainAction);
+}
+
 function readBoundedInteger(value: unknown, min: number, max: number): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
   const rounded = Math.round(value);
@@ -139,6 +158,10 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
 
   const maxStateCharacters = readBoundedInteger(record.maxStateCharacters, 1000, 1_000_000);
   if (maxStateCharacters !== undefined) patch.maxStateCharacters = maxStateCharacters;
+
+  if (record.uncertain !== undefined && isUncertainAction(record.uncertain)) {
+    patch.uncertain = record.uncertain;
+  }
 
   const safeCommands = record.safeCommands === undefined ? undefined : readStringArray(record.safeCommands);
   if (safeCommands !== undefined) patch.safeCommands = safeCommands;

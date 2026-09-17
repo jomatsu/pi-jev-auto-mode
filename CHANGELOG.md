@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0
+
+- **The middle band no longer asks the user by default.** An auto mode that stops to ask has
+  handed the decision back to a human, and the agent can always ask in conversation if it needs
+  guidance. A judgment that is neither satisfied nor rejected now blocks, so the gate never
+  takes over the screen.
+- `uncertain` setting and `/jev-auto-mode uncertain deny|ask|allow` control it. `deny` is the
+  default; `ask` restores the confirmation dialog; `allow` trusts the band.
+- `/jev-auto-mode threshold edit` picks a rule and prompts for a value, showing each rule's
+  current threshold next to the last probability the model returned for it.
+
 ## 0.1.2
 
 - Fix the screen thrashing that happened whenever a judgment was delegated to the user: the

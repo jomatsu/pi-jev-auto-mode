@@ -9,7 +9,7 @@
 
 import type { GatedCall, RepoFacts } from "./call.ts";
 
-export type DecisionSource = "hard-deny" | "user-rule" | "engine" | "unavailable" | "no-ui" | "user";
+export type DecisionSource = "hard-deny" | "user-rule" | "engine" | "uncertain" | "unavailable" | "no-ui" | "user";
 
 /**
  * A display-ready report of one condition's judgment.

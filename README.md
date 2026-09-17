@@ -8,7 +8,7 @@ cannot be made.
 
 > **Status: milestones 1–3 are complete.** The deterministic envelope, the Jev engine,
 > real-API calibration, settings, policy notes, per-rule threshold tuning, and decision
-> records are implemented and tested (157 tests, no network). See [`docs/design.md`](./docs/design.md) for
+> records are implemented and tested (171 tests, no network). See [`docs/design.md`](./docs/design.md) for
 > the roadmap and [`docs/calibration.md`](./docs/calibration.md) for the measured
 > probabilities behind every threshold.
 
@@ -26,7 +26,7 @@ your deny pattern       → block
 your allow pattern      → allow
 safe read-only command  → run, no record
 in-project write/edit   → run, no record
-everything else         → Jev: allow · block · confirm · block-if-undecidable
+everything else         → Jev: allow · block · block-if-undecidable
 ```
 
 `rm -rf build` inside the repository is recognized as a scoped local deletion. A write to
@@ -48,8 +48,13 @@ Conditions are phrased so the safe state is "yes", and each one is classified by
 So `intent_coverage` ("is this what the user asked for?") is the permission question, and
 questions like "is a secret being sent to a network endpoint" are hazard detectors that only
 block when they are sure. Posting a private key is never cleared by intent; force-pushing a
-feature branch the user asked for is. Everything that cannot be decided — no engine, timeout,
-malformed response, cancellation — blocks.
+feature branch the user asked for is.
+
+**Nothing is delegated to the user by default.** The middle band — where Jev is neither
+satisfied nor rejecting — resolves to a block, so Jev's probability is the whole answer and the
+gate never takes over the screen. `/jev-auto-mode uncertain ask` restores the confirmation
+dialog if you want it; `allow` trusts the band. Everything else that cannot be decided — no
+engine, timeout, malformed response, cancellation — also blocks.
 
 ## Install
 
@@ -84,7 +89,10 @@ Packages are discovered in the [package gallery](https://pi.dev/packages) throug
 /jev-auto-mode policy clear
 /jev-auto-mode threshold                show thresholds and the last observed probability per rule
 /jev-auto-mode threshold <rule> <0.5-1> set one threshold
+/jev-auto-mode threshold edit            pick a rule and type a value
 /jev-auto-mode threshold reset [rule]   restore the calibrated default
+/jev-auto-mode uncertain                show what the middle band resolves to
+/jev-auto-mode uncertain deny|ask|allow
 ```
 
 ```
@@ -164,6 +172,7 @@ Policy notes: `$PI_CODING_AGENT_DIR/jev-auto-mode-policy.md`.
   "disallowedCommands": ["npm publish*"],
   "extraProtectedPaths": [],
   "maxStateCharacters": 120000,
+  "uncertain": "deny",
   "thresholds": {}
 }
 ```

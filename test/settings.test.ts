@@ -30,6 +30,14 @@ describe("parseSettingsPatch", () => {
     assert.deepEqual(patch, { allowedCommands: ["ok"] });
   });
 
+  it("accepts only known uncertain actions", () => {
+    assert.equal(parseSettingsPatch({ uncertain: "deny" }).uncertain, "deny");
+    assert.equal(parseSettingsPatch({ uncertain: "ask" }).uncertain, "ask");
+    assert.equal(parseSettingsPatch({ uncertain: "allow" }).uncertain, "allow");
+    assert.equal(parseSettingsPatch({ uncertain: "maybe" }).uncertain, undefined);
+    assert.equal(parseSettingsPatch({ uncertain: true }).uncertain, undefined);
+  });
+
   it("ignores non-object input", () => {
     assert.deepEqual(parseSettingsPatch("nope"), {});
     assert.deepEqual(parseSettingsPatch([1, 2]), {});
@@ -77,6 +85,10 @@ describe("threshold settings", () => {
 });
 
 describe("JevAutoModeStore", () => {
+  it("defaults to resolving the uncertain band as a block", async () => {
+    assert.equal(DEFAULT_SETTINGS.uncertain, "deny");
+  });
+
   it("starts from the defaults when nothing is configured", async () => {
     const dir = await tempDir();
     const store = new JevAutoModeStore({ agentDir: join(dir, "agent"), configDirName: ".pi" });

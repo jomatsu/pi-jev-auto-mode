@@ -285,40 +285,88 @@ describe("semantic verdicts", () => {
   });
 });
 
-describe("uncertain verdicts", () => {
+describe("the uncertain band", () => {
   const uncertain: EngineVerdict = { verdict: "uncertain", rationale: "the intent is not clear" };
 
-  it("asks the user and honours a yes", async () => {
+  it("blocks by default, without asking and without taking over the screen", async () => {
+    // The default is not a prompt: an auto mode that stops to ask has handed the
+    // decision back to the human.
     const ui = createUi({ answer: "Yes" });
     const { deps, records } = createDeps({ verdict: uncertain });
     const result = await evaluateToolCall(bash("git clean -fd"), createContext({ ui: ui.ui }), stateWith(), deps);
+
+    assert.equal(result?.block, true);
+    assert.equal(records[0]?.source, "uncertain");
+    assert.deepEqual(ui.selections, [], "no dialog is shown by default");
+    assert.match(records[0]?.rationale ?? "", /resolved to a block/);
+  });
+
+  it("allows when configured to trust the band", async () => {
+    const { deps, records } = createDeps({ verdict: uncertain });
+    const result = await evaluateToolCall(
+      bash("git clean -fd"),
+      createContext(),
+      stateWith({ uncertain: "allow" }),
+      deps,
+    );
+    assert.equal(result, undefined);
+    assert.equal(records[0]?.status, "allowed");
+    assert.equal(records[0]?.source, "uncertain");
+  });
+
+  it("asks, and honours a yes, only when configured to ask", async () => {
+    const ui = createUi({ answer: "Yes" });
+    const { deps, records } = createDeps({ verdict: uncertain });
+    const result = await evaluateToolCall(
+      bash("git clean -fd"),
+      createContext({ ui: ui.ui }),
+      stateWith({ uncertain: "ask" }),
+      deps,
+    );
     assert.equal(result, undefined);
     assert.equal(records[0]?.status, "confirmed");
     assert.equal(records[0]?.source, "user");
     assert.equal(ui.selections.length, 1);
+    assert.match(ui.selections[0] ?? "", /Jev auto mode wants confirmation/);
     assert.match(ui.selections[0] ?? "", /git clean -fd/);
   });
 
   it("blocks when the user declines", async () => {
     const ui = createUi({ answer: "No" });
     const { deps, records } = createDeps({ verdict: uncertain });
-    const result = await evaluateToolCall(bash("git clean -fd"), createContext({ ui: ui.ui }), stateWith(), deps);
+    const result = await evaluateToolCall(
+      bash("git clean -fd"),
+      createContext({ ui: ui.ui }),
+      stateWith({ uncertain: "ask" }),
+      deps,
+    );
     assert.equal(result?.block, true);
     assert.equal(records[0]?.status, "cancelled");
   });
 
-  it("blocks without a UI instead of assuming consent", async () => {
+  it("blocks without a UI when configured to ask", async () => {
     const ui = createUi({ answer: "Yes" });
     const { deps, records } = createDeps({ verdict: uncertain });
     const result = await evaluateToolCall(
       bash("git clean -fd"),
       createContext({ hasUI: false, ui: ui.ui }),
-      stateWith(),
+      stateWith({ uncertain: "ask" }),
       deps,
     );
     assert.equal(result?.block, true);
     assert.equal(records[0]?.source, "no-ui");
     assert.deepEqual(ui.selections, []);
+  });
+
+  it("keeps a long command from flooding the dialog when asking", async () => {
+    const longCommand = Array.from({ length: 60 }, (_, i) => `# padding ${i + 1}`).join("\n") + "\nsudo -n true";
+    const ui = createUi({ answer: "No" });
+    const { deps } = createDeps({ verdict: uncertain });
+    await evaluateToolCall(bash(longCommand), createContext({ ui: ui.ui }), stateWith({ uncertain: "ask" }), deps);
+
+    const dialog = ui.selections[0] ?? "";
+    assert.ok(dialog.split("\n").length <= 14, `dialog was ${dialog.split("\n").length} lines`);
+    assert.match(dialog, /more line\(s\)/);
   });
 });
 

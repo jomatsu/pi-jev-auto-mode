@@ -45,7 +45,8 @@ tool_call(bash | write | edit)
          ├ every `required` condition satisfied, no hazard rejected → allow
          ├ any `hazard` condition rejected    → block
          ├ any `soft` condition rejected      → block, unless the user's own request covers it
-         ├ any `required` condition unclear   → confirm in a UI, block without one
+         ├ any `required` condition unclear   → resolved by the `uncertain` setting
+         │                                      (default: block; `ask` prompts, `allow` passes)
          └ unavailable                        → block (fail-closed)
   └─ 7. record the decision via appendEntry (never enters LLM context)
 ```
@@ -76,7 +77,13 @@ participates:
 
 Composition happens in code, not in the model: one rejection from a `hazard`-severity condition
 blocks, a `soft` rejection is cleared by a satisfied `intent_coverage`, an unclear `required`
-condition escalates, otherwise the call is approved. One question, one judgment; no compound
+condition is resolved by the `uncertain` setting, otherwise the call is approved.
+
+The default for that resolution is `deny`. Handing an unclear judgment to the user is what a
+non-auto mode does, and it makes the gate a source of interruptions; the agent can ask in
+conversation if it needs guidance. The `ask` path still exists, and when it is used the dialog
+shows a bounded preview — Pi's dialogs do not clip their content, so an unbounded command
+produces a dialog taller than the terminal. One question, one judgment; no compound
 questions, and the model never has to weigh concerns against each other.
 
 `intent_coverage` is the only permission question. It reads user-authored messages only — never
@@ -98,7 +105,7 @@ shipped to everyone.
 
 ## Tests
 
-157 tests, none of which need a network or an API key: the engine and transport are stubbed so
+171 tests, none of which need a network or an API key: the engine and transport are stubbed so
 every branch — allow, deny, cleared-by-intent, uncertain, each unavailable reason, boundary
 probabilities — is deterministic. The real API is exercised by two scripts that are not part of
 the published package:

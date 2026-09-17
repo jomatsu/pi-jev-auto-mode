@@ -51,10 +51,18 @@ import {
   type DecisionRecord,
   type DecisionRecorder,
 } from "./records.ts";
-import { DEFAULT_SETTINGS, JevAutoModeStore, parseThreshold, type JevAutoModeSettings, type SettingsScope } from "./settings.ts";
+import {
+  DEFAULT_SETTINGS,
+  JevAutoModeStore,
+  isUncertainAction,
+  parseThreshold,
+  type JevAutoModeSettings,
+  type SettingsScope,
+} from "./settings.ts";
 import {
   buildConfirmationDialog,
   describeSettings,
+  UNCERTAIN_EXPLANATION,
   formatRuleTable,
   POLICY_HEADER,
   statusText,
@@ -309,6 +317,32 @@ export async function evaluateToolCall(
     }
 
     case "uncertain": {
+      // The middle band is a policy decision, not a prompt by default. An auto mode
+      // that stops to ask the user has handed the decision back to the human, and
+      // the agent can always ask in conversation if it needs guidance.
+      if (state.settings.uncertain === "deny") {
+        const rationale = `No condition decided the call, and the uncertain band is resolved to a block. ${verdict.rationale}`;
+        return blocked(deps, {
+          call,
+          reasons,
+          status: "blocked",
+          source: "uncertain",
+          rationale,
+          evidence,
+        });
+      }
+
+      if (state.settings.uncertain === "allow") {
+        return permit(deps, {
+          call,
+          reasons,
+          status: "allowed",
+          source: "uncertain",
+          rationale: `No condition was violated and the uncertain band is configured to allow. ${verdict.rationale}`,
+          evidence,
+        });
+      }
+
       if (!ctx.hasUI) {
         const rationale = `${verdict.rationale} No UI is available to confirm, so the call was blocked.`;
         return blocked(
@@ -349,6 +383,47 @@ export async function evaluateToolCall(
       });
     }
   }
+}
+
+/**
+ * Pick a rule, then type a value.
+ *
+ * The direct form (`threshold <rule> <value>`) is faster once the rule ids are
+ * known; this exists so tuning does not require remembering them.
+ */
+async function editThreshold(
+  ctx: { ui: GateUi },
+  state: GateState,
+  observed: ReadonlyMap<string, ObservedCondition>,
+  save: (ctx: GateContext) => Promise<void>,
+  rebuild: () => Promise<void>,
+): Promise<void> {
+  const choices = DEFAULT_RULES.map((rule) => {
+    const threshold = state.settings.thresholds[rule.id] ?? rule.threshold;
+    const last = observed.get(rule.id);
+    return `${rule.id}  (t=${threshold}${last ? `, last p=${last.probability.toFixed(2)}` : ""})`;
+  });
+
+  const picked = await ctx.ui.select("Which condition?", choices);
+  if (picked === undefined) return;
+  const ruleId = picked.split(" ")[0] ?? "";
+  const rule = ruleById(ruleId);
+  if (!rule) return;
+
+  const current = state.settings.thresholds[ruleId] ?? rule.threshold;
+  const entered = await ctx.ui.input(`${ruleId}: threshold (0.5-1.0, default ${rule.threshold})`, String(current));
+  if (entered === undefined) return;
+
+  const threshold = parseThreshold(Number(entered.trim()));
+  if (threshold === undefined) {
+    ctx.ui.notify(`A threshold must be greater than 0.5 and at most 1.0 (got \`${entered.trim()}\`).`, "error");
+    return;
+  }
+
+  state.settings = { ...state.settings, thresholds: { ...state.settings.thresholds, [ruleId]: threshold } };
+  await save(ctx as unknown as GateContext);
+  await rebuild();
+  ctx.ui.notify(`\`${ruleId}\` now requires p >= ${threshold}`, "info");
 }
 
 export interface RegisterOptions {
@@ -611,6 +686,28 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
 
       if (value === "threshold" || value === "threshold list") {
         ctx.ui.notify(formatRuleTable(DEFAULT_RULES, state.settings.thresholds, observed), "info");
+        return;
+      }
+
+      if (value === "threshold edit") {
+        await editThreshold(ctx, state, observed, save, rebuildEngine);
+        return;
+      }
+
+      if (value.startsWith("uncertain")) {
+        const argument = value.slice("uncertain".length).trim();
+        if (argument === "") {
+          ctx.ui.notify(`uncertain: ${state.settings.uncertain}\n\n${UNCERTAIN_EXPLANATION}`, "info");
+          return;
+        }
+        if (!isUncertainAction(argument)) {
+          ctx.ui.notify(`Expected one of deny, ask, allow.\n\n${UNCERTAIN_EXPLANATION}`, "error");
+          return;
+        }
+
+        state.settings = { ...state.settings, uncertain: argument };
+        await save(gateContext);
+        ctx.ui.notify(`uncertain band now resolves to: ${argument}\n\n${UNCERTAIN_EXPLANATION}`, "info");
         return;
       }
 

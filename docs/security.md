@@ -60,7 +60,9 @@ Everything below resolves to **block**. Silence is never consent.
 | State + questions over the shared budget | block (`state_too_large`) before the request is sent |
 | Engine throws | block (`engine_error`) |
 | Request cancelled (Esc) | block |
-| No UI available for a confirmation | block (`no-ui`) |
+| A middle-band judgment, with the default `uncertain: deny` | block (`uncertain`) |
+| A middle-band judgment with `uncertain: allow` | allow — an explicit choice to trust the band |
+| No UI available for a confirmation when `uncertain: ask` | block (`no-ui`) |
 | A condition answered by fewer than all keys | block (`malformed_response`) — a missing answer is never an approval |
 
 A confirmation is not a bypass: it runs only when the semantic layer said `uncertain`, never

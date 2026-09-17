@@ -43,6 +43,7 @@ export function describeSettings(settings: JevAutoModeSettings, scope: SettingsS
     `disallowed commands: ${settings.disallowedCommands.length}`,
     `extra protected paths: ${settings.extraProtectedPaths.length}`,
     `max state characters: ${settings.maxStateCharacters}`,
+    `uncertain band: ${settings.uncertain}`,
   ].join("\n");
 }
 
@@ -144,6 +145,16 @@ export const USAGE_TEXT = [
   "  /jev-auto-mode threshold           show thresholds and last observed probabilities",
   "  /jev-auto-mode threshold <rule> <0.5-1.0>",
   "  /jev-auto-mode threshold reset [rule]",
+  "  /jev-auto-mode threshold edit      pick a rule and type a value",
+  "  /jev-auto-mode uncertain            show what the middle band resolves to",
+  "  /jev-auto-mode uncertain deny|ask|allow",
+].join("\n");
+
+export const UNCERTAIN_EXPLANATION = [
+  "The middle band is where Jev is neither satisfied nor rejecting.",
+  "  deny  - block it. No prompt, no screen takeover: Jev's probability is the answer.",
+  "  ask   - hand the call to the user. Opt-in, because it hands the decision back to a human.",
+  "  allow - let it through. Trusts the band; the least safe of the three.",
 ].join("\n");
 
 export const POLICY_HEADER = [

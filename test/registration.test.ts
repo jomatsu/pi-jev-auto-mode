@@ -301,6 +301,37 @@ describe("command wiring", () => {
     assert.match(harness.notifications.at(-1)?.message ?? "", /No stored API key/);
   });
 
+  it("switches how the uncertain band resolves, and persists it", async () => {
+    const { cwd, store, harness } = await setup();
+    const command = harness.commands.get(AUTO_MODE_COMMAND);
+    assert.ok(command);
+
+    await command.handler("uncertain", createContext(harness, cwd));
+    assert.match(harness.notifications.at(-1)?.message ?? "", /uncertain: deny/);
+
+    await command.handler("uncertain allow", createContext(harness, cwd));
+    assert.equal((await store.loadSettings(cwd, true)).settings.uncertain, "allow");
+
+    await command.handler("uncertain maybe", createContext(harness, cwd));
+    assert.equal(harness.notifications.at(-1)?.type, "error");
+    assert.equal((await store.loadSettings(cwd, true)).settings.uncertain, "allow");
+  });
+
+  it("tunes a threshold through the picker", async () => {
+    const { cwd, store, harness } = await setup();
+    const command = harness.commands.get(AUTO_MODE_COMMAND);
+    assert.ok(command);
+
+    const ctx = createContext(harness, cwd);
+    // The picker is select -> input, so it needs a UI that answers both.
+    ctx.ui.select = async () => "intent_coverage  (t=0.8)";
+    ctx.ui.input = async () => "0.95";
+
+    await command.handler("threshold edit", ctx);
+    assert.equal((await store.loadSettings(cwd, true)).settings.thresholds.intent_coverage, 0.95);
+    assert.match(harness.notifications.at(-1)?.message ?? "", /requires p >= 0.95/);
+  });
+
   it("resets one override and all overrides", async () => {
     const { cwd, store, harness } = await setup();
     const command = harness.commands.get(AUTO_MODE_COMMAND);
