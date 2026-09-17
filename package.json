@@ -1,0 +1,58 @@
+{
+  "name": "pi-jev-auto-mode",
+  "version": "0.1.0",
+  "description": "JEV (TypeSafe System One) backed auto mode for the Pi coding agent: semantically auto-approves bash, write, and edit tool calls and fails closed when a decision cannot be made.",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi-coding-agent",
+    "auto-mode",
+    "permission",
+    "gate",
+    "jev",
+    "typesafe",
+    "guardrail"
+  ],
+  "license": "MIT",
+  "author": "jomatsu",
+  "homepage": "https://github.com/jomatsu/pi-jev-auto-mode",
+  "bugs": "https://github.com/jomatsu/pi-jev-auto-mode/issues",
+  "repository": "github:jomatsu/pi-jev-auto-mode",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "files": [
+    "index.ts",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node --test --experimental-strip-types --test-reporter=spec 'test/**/*.test.ts'",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.84.2",
+    "@earendil-works/pi-tui": "^0.84.2",
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.0"
+  }
+}

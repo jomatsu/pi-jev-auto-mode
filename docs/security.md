@@ -1,0 +1,92 @@
+# Security notes
+
+## The shape of the problem
+
+A coding agent with shell access can be talked into almost anything by the content it reads:
+a dependency's README, a test fixture, an issue body, a comment in the file it was asked to
+fix. A permission gate therefore cannot be "a second opinion from another chat model". It has
+to be an envelope the agent cannot argue its way out of, plus a narrow judgment for the cases
+the envelope cannot decide on its own.
+
+This package splits those two responsibilities and keeps the envelope authoritative.
+
+## What the semantic layer may and may not do
+
+| Allowed | Not allowed |
+|---|---|
+| Approve a call the deterministic layer escalated | Approve a hard-deny command |
+| Refuse a call that looks required by the task | Override a user deny pattern |
+| Report "uncertain", which becomes a confirmation | Widen the set of protected paths |
+
+The order in `evaluateToolCall` is the enforcement: hard-deny and user rules return before the
+engine is constructed or called at all. There is no code path in which a probabilistic verdict
+is consulted for a hard-deny target.
+
+## Failure modes and what happens
+
+Everything below resolves to **block**. Silence is never consent.
+
+| Failure | Resolution |
+|---|---|
+| No semantic engine configured (milestone 1) | confirm in a UI, block without one |
+| API key missing or rejected | block, with the reason surfaced to the model |
+| Timeout / connection error | block (`timeout`, `network`) |
+| 5xx or 429 after retries | block (`http`) |
+| 4xx that retries cannot fix | block (`http`) — not rethrown, so the gate cannot fail open |
+| Response shape wrong, or a condition missing from the answer | block (`malformed_response`) |
+| State + questions over the shared budget | block (`state_too_large`) before the request is sent |
+| Engine throws | block (`engine_error`) |
+| Request cancelled (Esc) | block |
+| No UI available for a confirmation | block (`no-ui`) |
+
+A confirmation is not a bypass: it runs only when the semantic layer said `uncertain`, never
+when it said `deny` or when no decision was available.
+
+## Injection stance
+
+- The user intent sent for judgment is built from **user-authored messages only**. Assistant
+  text and tool output are excluded, because they carry repository content and command output
+  and would otherwise let a file argue for its own approval.
+- File contents and diffs are never sent. Only paths.
+- `AGENTS.md` / `CLAUDE.md` and the agent configuration directories are treated as protected
+  paths: a write there changes what the agent believes it was told.
+- One dedicated condition (`prompt_injection_absent`) asks whether the call is trying to make
+  other state act as instructions.
+- The gate never returns a JEV rationale verbatim as a system-level instruction; a block
+  reason is a tool-call error string, which is the weakest channel it can use.
+
+## What is sent to TypeSafe
+
+Judgment requires the content to leave the machine. The API is `api.typesafe.ai`, and the
+payload is deliberately narrow:
+
+| Sent | Not sent |
+|---|---|
+| tool name, bash command text (truncated) | file contents, diffs, `write` bodies |
+| write/edit target path, cwd | tool output, assistant messages |
+| matched policy reason names | environment variables |
+| recent user messages (bounded, ≤4k chars) | the API key itself |
+| policy notes | |
+
+Redaction runs before the state is built: `*_KEY=` / `*_TOKEN=` / `*_SECRET=` assignments,
+`Bearer …`, JWTs, `sk-` / `rk-` keys, `ghp_` / `gho_` tokens, `AKIA…` access key IDs,
+`apikey_…` keys, and PEM private keys become `<redacted>` markers. Redaction is a safety net,
+not a guarantee — an unusual secret format will pass through. Lower
+`maxStateCharacters`, or keep a command out of the gate by adding a deny/allow rule, if a
+repository must not produce outbound text at all.
+
+Records written to the session store the decision, the matched reasons, the rationale, the
+model name, and per-condition probabilities. They are local and do not enter the model's
+context.
+
+## Known limits
+
+- `classifyWriteTarget` is lexical (no `realpath`), so a symlink inside the working directory
+  pointing outside it is not detected by the deterministic layer.
+- Command matching is conservative pattern matching, not a shell parser. `rm -rf build` is
+  recognized as scoped; obfuscated equivalents (`xargs`, command substitution, `sh -c`) are
+  escalated rather than recognized.
+- A command that `cd`s elsewhere and then deletes is judged by its text and intent, not by a
+  simulated shell.
+- The probability thresholds are calibrated on one person's data. Treat them as a starting
+  point and tune them from the recorded probabilities.
