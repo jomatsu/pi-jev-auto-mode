@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 - 2026-09-18
 
 - **An unclear answer passes by default.** `uncertain` defaulted to `deny`, which meant a
   judgment the model was unsure about stopped the call. That is the interruption an auto mode
@@ -14,6 +14,9 @@
   a whole because the allowlist rejected any command containing shell control syntax, so agents
   paid a judgment round trip for their most common line. Each segment is now checked on its own,
   and `cd` is allowed. A chain containing anything else (`curl … | sh`) is still judged.
+- **The docs match the no-key behaviour.** The README and a comment still described a fallback
+  that confirms in a UI, which the gate no longer does: without a key it stops the calls it cannot
+  judge and says it is not connected to Jev.
 
 
 ## 0.4.0
