@@ -323,14 +323,14 @@ describe("command wiring", () => {
     assert.ok(command);
 
     await command.handler("display", createContext(harness, cwd));
-    assert.match(harness.notifications.at(-1)?.message ?? "", /display: full/);
+    assert.match(harness.notifications.at(-1)?.message ?? "", /display: compact/);
 
-    await command.handler("display compact", createContext(harness, cwd));
-    assert.equal((await store.loadSettings(cwd, true)).settings.display, "compact");
+    await command.handler("display full", createContext(harness, cwd));
+    assert.equal((await store.loadSettings(cwd, true)).settings.display, "full");
 
     await command.handler("display tiny", createContext(harness, cwd));
     assert.equal(harness.notifications.at(-1)?.type, "error");
-    assert.equal((await store.loadSettings(cwd, true)).settings.display, "compact");
+    assert.equal((await store.loadSettings(cwd, true)).settings.display, "full");
   });
 
   it("switches the gate scope, and persists it", async () => {

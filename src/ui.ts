@@ -155,8 +155,8 @@ export const USAGE_TEXT = [
 
 export const DISPLAY_EXPLANATION = [
   "How decision records are drawn in the transcript.",
-  "  full    - heading, engine line, command, reasons, and rationale (default).",
-  "  compact - one line for an approval, two for a block (with the rationale).",
+  "  compact - one line for an approval, two for a block (with the rationale) (default).",
+  "  full    - heading, engine line, command, reasons, and rationale.",
   "The expanded view always shows every detail. New records use the mode at once;",
   "records already on screen switch when Pi redraws them (e.g. toggling expansion).",
 ].join("\n");

@@ -233,8 +233,13 @@ describe("decision entry renderer", () => {
     assert.ok(lines.length > 5);
   });
 
-  it("keeps the full view by default", async () => {
+  it("is compact by default", async () => {
     const lines = (await capture())({ data: long }, { expanded: false }, theme)?.render(60) ?? [];
+    assert.equal(lines.length, 1);
+  });
+
+  it("draws the full view when asked for it", async () => {
+    const lines = (await capture("full"))({ data: long }, { expanded: false }, theme)?.render(60) ?? [];
     assert.ok(lines.some((line) => line.includes("rationale:")));
     assert.ok(lines.length > 3);
   });

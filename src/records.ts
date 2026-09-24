@@ -137,7 +137,7 @@ export type DisplayModeSource = () => DisplayMode;
 
 export function registerDecisionEntryRenderer(
   pi: Pick<ExtensionAPI, "registerEntryRenderer">,
-  displayMode: DisplayModeSource = () => "full",
+  displayMode: DisplayModeSource = () => "compact",
 ): void {
   pi.registerEntryRenderer<DecisionRecord>(DECISION_ENTRY_TYPE, (entry, options, theme) => {
     const record = entry.data;

@@ -190,8 +190,8 @@ describe("stored API key", () => {
 });
 
 describe("display setting", () => {
-  it("defaults to full and accepts only known modes", () => {
-    assert.equal(DEFAULT_SETTINGS.display, "full");
+  it("defaults to compact and accepts only known modes", () => {
+    assert.equal(DEFAULT_SETTINGS.display, "compact");
     assert.equal(parseSettingsPatch({ display: "compact" }).display, "compact");
     assert.equal(parseSettingsPatch({ display: "full" }).display, "full");
     assert.equal(parseSettingsPatch({ display: "tiny" }).display, undefined);

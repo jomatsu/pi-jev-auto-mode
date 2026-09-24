@@ -2,10 +2,11 @@
 
 ## 0.5.0 - 2026-09-24
 
-- **Decision records can be compact.** `/jev-auto-mode display compact` (or `"display":
-  "compact"`) draws an approval as one line — status, tool, latency, and the command — and a
-  block as two, keeping the rationale. `full` remains the default, and the expanded view still
-  shows every detail.
+- **Decision records are compact by default.** An approval is drawn as one line — status, tool,
+  latency, and the command — and a block as two, keeping the rationale. Each record used to take
+  five padded blocks, so a long session was mostly gate records. `/jev-auto-mode display full`
+  (or `"display": "full"`) restores the previous view, and the expanded view shows every detail
+  in either mode.
 
 ## 0.4.1 - 2026-09-18
 

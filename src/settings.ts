@@ -48,9 +48,9 @@ export interface JevAutoModeSettings {
   /**
    * How decision records are drawn in the transcript.
    *
-   * `full` (the default) shows the heading, the engine line, the command, the reasons,
-   * and the rationale. `compact` folds an approval into one line and a block into two,
-   * so a long session is not dominated by gate records. The expanded view (the tool
+   * `compact` (the default) folds an approval into one line and a block into two, so
+   * a long session is not dominated by gate records. `full` shows the heading, the
+   * engine line, the command, the reasons, and the rationale. The expanded view (the tool
    * expansion key) always shows every detail, whichever mode is set.
    */
   readonly display: DisplayMode;
@@ -107,7 +107,7 @@ export const DEFAULT_SETTINGS: JevAutoModeSettings = {
   uncertain: "allow",
   gateScope: "all",
   thresholds: {},
-  display: "full",
+  display: "compact",
 };
 
 const MAX_PATTERN_ENTRIES = 200;
