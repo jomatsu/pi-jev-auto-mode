@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 - 2026-09-24
 
 - **Decision records can be compact.** `/jev-auto-mode display compact` (or `"display":
   "compact"`) draws an approval as one line — status, tool, latency, and the command — and a
