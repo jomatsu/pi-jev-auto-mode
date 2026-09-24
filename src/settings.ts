@@ -45,6 +45,23 @@ export interface JevAutoModeSettings {
    * visible in `/jev-auto-mode threshold` instead of silently resetting the rule.
    */
   readonly thresholds: Readonly<Record<string, number>>;
+  /**
+   * How decision records are drawn in the transcript.
+   *
+   * `full` (the default) shows the heading, the engine line, the command, the reasons,
+   * and the rationale. `compact` folds an approval into one line and a block into two,
+   * so a long session is not dominated by gate records. The expanded view (the tool
+   * expansion key) always shows every detail, whichever mode is set.
+   */
+  readonly display: DisplayMode;
+}
+
+export type DisplayMode = "full" | "compact";
+
+export const DISPLAY_MODES: readonly DisplayMode[] = ["full", "compact"];
+
+export function isDisplayMode(value: unknown): value is DisplayMode {
+  return typeof value === "string" && DISPLAY_MODES.includes(value as DisplayMode);
 }
 
 export type SettingsScope = "global" | "project";
@@ -90,6 +107,7 @@ export const DEFAULT_SETTINGS: JevAutoModeSettings = {
   uncertain: "allow",
   gateScope: "all",
   thresholds: {},
+  display: "full",
 };
 
 const MAX_PATTERN_ENTRIES = 200;
@@ -191,6 +209,10 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
 
   if (record.gateScope !== undefined && isGateScope(record.gateScope)) {
     patch.gateScope = record.gateScope;
+  }
+
+  if (record.display !== undefined && isDisplayMode(record.display)) {
+    patch.display = record.display;
   }
 
   const safeCommands = record.safeCommands === undefined ? undefined : readStringArray(record.safeCommands);

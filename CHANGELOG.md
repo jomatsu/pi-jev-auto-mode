@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Decision records can be compact.** `/jev-auto-mode display compact` (or `"display":
+  "compact"`) draws an approval as one line — status, tool, latency, and the command — and a
+  block as two, keeping the rationale. `full` remains the default, and the expanded view still
+  shows every detail.
+
 ## 0.4.1 - 2026-09-18
 
 - **An unclear answer passes by default.** `uncertain` defaulted to `deny`, which meant a

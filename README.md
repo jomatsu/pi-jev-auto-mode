@@ -113,7 +113,13 @@ Packages are discovered in the [package gallery](https://pi.dev/packages) throug
 /jev-auto-mode uncertain                show what the middle band resolves to
 /jev-auto-mode uncertain deny|ask|allow
 /jev-auto-mode scope all|matched        how far the semantic layer reaches
+/jev-auto-mode display full|compact     how decision records are drawn
 ```
+
+Each decision leaves a record in the transcript. `display: "full"` (the default) shows the
+heading, the engine line, the command, the reasons, and the rationale. `display: "compact"`
+folds an approval into one line and a block into two (the rationale stays, because a block is
+something to act on). The expanded view shows every detail in either mode.
 
 ```
 pi --jev-auto-mode        start with auto mode enabled
@@ -195,6 +201,7 @@ Policy notes: `$PI_CODING_AGENT_DIR/jev-auto-mode-policy.md`.
   "maxStateCharacters": 120000,
   "uncertain": "deny",
   "gateScope": "all",
+  "display": "full",
   "thresholds": {}
 }
 ```

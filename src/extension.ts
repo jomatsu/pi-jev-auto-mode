@@ -55,6 +55,7 @@ import {
 import {
   DEFAULT_SETTINGS,
   JevAutoModeStore,
+  isDisplayMode,
   isGateScope,
   isUncertainAction,
   parseThreshold,
@@ -64,6 +65,7 @@ import {
 import {
   buildConfirmationDialog,
   describeSettings,
+  DISPLAY_EXPLANATION,
   GATE_SCOPE_EXPLANATION,
   UNCERTAIN_EXPLANATION,
   formatRuleTable,
@@ -571,7 +573,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
     default: false,
   });
 
-  registerDecisionEntryRenderer(pi);
+  registerDecisionEntryRenderer(pi, () => state.settings.display);
 
   pi.registerCommand(AUTO_MODE_COMMAND, {
     description: "Show or change the Jev auto mode settings",
@@ -579,7 +581,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
       const value = String(argumentPrefix ?? "");
       const tokens = value.split(/\s+/).filter(Boolean);
       if (tokens.length === 0) {
-        return ["status", "on", "off", "policy", "threshold", "scope", "uncertain", "login", "logout"].map((item) => ({
+        return ["status", "on", "off", "policy", "threshold", "scope", "uncertain", "display", "login", "logout"].map((item) => ({
           value: item,
           label: item,
         }));
@@ -753,6 +755,23 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
         state.settings = { ...state.settings, gateScope: argument };
         await save(gateContext);
         ctx.ui.notify(`gate scope now: ${argument}\n\n${GATE_SCOPE_EXPLANATION}`, "info");
+        return;
+      }
+
+      if (value.startsWith("display")) {
+        const argument = value.slice("display".length).trim();
+        if (argument === "") {
+          ctx.ui.notify(`display: ${state.settings.display}\n\n${DISPLAY_EXPLANATION}`, "info");
+          return;
+        }
+        if (!isDisplayMode(argument)) {
+          ctx.ui.notify(`Expected one of full, compact.\n\n${DISPLAY_EXPLANATION}`, "error");
+          return;
+        }
+
+        state.settings = { ...state.settings, display: argument };
+        await save(gateContext);
+        ctx.ui.notify(`decision records now display as: ${argument}`, "info");
         return;
       }
 

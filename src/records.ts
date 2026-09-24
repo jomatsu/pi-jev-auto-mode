@@ -6,10 +6,11 @@
  * recorded rationale should not become ammunition for the next tool call.
  */
 
-import { Box, Text } from "@earendil-works/pi-tui";
+import { Box, Text, truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ConditionReport, DecisionSource } from "./decide.ts";
 import { formatThreshold } from "./jev/decide.ts";
+import type { DisplayMode } from "./settings.ts";
 
 export const DECISION_ENTRY_TYPE = "jev-auto-mode-decision";
 
@@ -85,12 +86,77 @@ export function formatConditionLines(record: DecisionRecord): string[] {
   });
 }
 
-export function registerDecisionEntryRenderer(pi: Pick<ExtensionAPI, "registerEntryRenderer">): void {
+/** Collapse whitespace so a multi-line command reads as one line. */
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+export interface CompactDecisionLines {
+  /** `🛡 jev allowed · bash · 299ms · <command>`: everything an approval needs. */
+  readonly headline: string;
+  /**
+   * The rationale, only for a call that did not run. An approval does not need its
+   * reasoning on screen; a block does, because the user has to act on it.
+   */
+  readonly detail?: string;
+}
+
+/**
+ * The compact view: one line for an approval, two for a block.
+ *
+ * Width is applied at render time. This only decides what the lines say.
+ */
+export function formatCompactLines(record: DecisionRecord): CompactDecisionLines {
+  const approved = record.status === "allowed" || record.status === "confirmed";
+  const parts = [`${approved ? "🛡" : "⛔"} jev ${STATUS_LABEL[record.status]}`, record.tool];
+  if (!approved) parts.push(`via ${record.source}`);
+  if (typeof record.latencyMs === "number") parts.push(`${Math.round(record.latencyMs)}ms`);
+  const summary = oneLine(record.summary);
+  if (summary.length > 0) parts.push(summary);
+  const headline = parts.join(" · ");
+  if (approved) return { headline };
+  return { headline, detail: oneLine(record.rationale) };
+}
+
+/** A single line clipped to the viewport instead of wrapped. */
+class ClippedLine implements Component {
+  private readonly text: string;
+
+  constructor(text: string) {
+    this.text = text;
+  }
+
+  render(width: number): string[] {
+    return [truncateToWidth(this.text, Math.max(1, width))];
+  }
+
+  invalidate(): void {}
+}
+
+export type DisplayModeSource = () => DisplayMode;
+
+export function registerDecisionEntryRenderer(
+  pi: Pick<ExtensionAPI, "registerEntryRenderer">,
+  displayMode: DisplayModeSource = () => "full",
+): void {
   pi.registerEntryRenderer<DecisionRecord>(DECISION_ENTRY_TYPE, (entry, options, theme) => {
     const record = entry.data;
     if (!record) return undefined;
 
     const approved = record.status === "allowed" || record.status === "confirmed";
+
+    // The expanded view is the place to read a decision in full, so it ignores the
+    // compact setting.
+    if (displayMode() === "compact" && !options.expanded) {
+      const lines = formatCompactLines(record);
+      const box = new Box(1, 0, (text) => theme.bg("customMessageBg", text));
+      box.addChild(new ClippedLine(theme.fg(approved ? "muted" : "error", lines.headline)));
+      if (lines.detail !== undefined) {
+        box.addChild(new ClippedLine(theme.fg("dim", `rationale: ${lines.detail}`)));
+      }
+      return box;
+    }
+
     const icon = approved ? "🛡" : "⛔";
     const heading = `${icon} ${theme.bold("jev auto mode")} ${theme.fg(
       approved ? "success" : "error",

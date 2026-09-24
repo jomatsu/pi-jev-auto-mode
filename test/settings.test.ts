@@ -188,3 +188,12 @@ describe("stored API key", () => {
     await store.deleteStoredApiKey(); // idempotent
   });
 });
+
+describe("display setting", () => {
+  it("defaults to full and accepts only known modes", () => {
+    assert.equal(DEFAULT_SETTINGS.display, "full");
+    assert.equal(parseSettingsPatch({ display: "compact" }).display, "compact");
+    assert.equal(parseSettingsPatch({ display: "full" }).display, "full");
+    assert.equal(parseSettingsPatch({ display: "tiny" }).display, undefined);
+  });
+});

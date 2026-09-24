@@ -44,6 +44,7 @@ export function describeSettings(settings: JevAutoModeSettings, scope: SettingsS
     `max state characters: ${settings.maxStateCharacters}`,
     `uncertain band: ${settings.uncertain}`,
     `gate scope: ${settings.gateScope}`,
+    `display: ${settings.display}`,
   ].join("\n");
 }
 
@@ -149,6 +150,15 @@ export const USAGE_TEXT = [
   "  /jev-auto-mode uncertain            show what the middle band resolves to",
   "  /jev-auto-mode uncertain deny|ask|allow",
   "  /jev-auto-mode scope all|matched    which calls reach Jev",
+  "  /jev-auto-mode display full|compact how decision records are drawn",
+].join("\n");
+
+export const DISPLAY_EXPLANATION = [
+  "How decision records are drawn in the transcript.",
+  "  full    - heading, engine line, command, reasons, and rationale (default).",
+  "  compact - one line for an approval, two for a block (with the rationale).",
+  "The expanded view always shows every detail. New records use the mode at once;",
+  "records already on screen switch when Pi redraws them (e.g. toggling expansion).",
 ].join("\n");
 
 export const GATE_SCOPE_EXPLANATION = [

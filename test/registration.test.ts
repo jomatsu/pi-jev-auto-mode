@@ -317,6 +317,22 @@ describe("command wiring", () => {
     assert.equal((await store.loadSettings(cwd, true)).settings.uncertain, "deny");
   });
 
+  it("switches how decision records are drawn, and persists it", async () => {
+    const { cwd, store, harness } = await setup();
+    const command = harness.commands.get(AUTO_MODE_COMMAND);
+    assert.ok(command);
+
+    await command.handler("display", createContext(harness, cwd));
+    assert.match(harness.notifications.at(-1)?.message ?? "", /display: full/);
+
+    await command.handler("display compact", createContext(harness, cwd));
+    assert.equal((await store.loadSettings(cwd, true)).settings.display, "compact");
+
+    await command.handler("display tiny", createContext(harness, cwd));
+    assert.equal(harness.notifications.at(-1)?.type, "error");
+    assert.equal((await store.loadSettings(cwd, true)).settings.display, "compact");
+  });
+
   it("switches the gate scope, and persists it", async () => {
     const { cwd, store, harness } = await setup();
     const command = harness.commands.get(AUTO_MODE_COMMAND);

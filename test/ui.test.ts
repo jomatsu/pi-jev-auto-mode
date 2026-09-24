@@ -185,3 +185,57 @@ describe("confirmation dialogs", () => {
     assert.equal(clampLines(short, 5), short);
   });
 });
+
+describe("compact decision records", () => {
+  it("folds an approval into one line with the command on it", async () => {
+    const { formatCompactLines } = await import("../src/records.ts");
+    const lines = formatCompactLines(
+      record({ summary: "cd /tmp &&\n  python3 -c \"print(1)\"", latencyMs: 299.4, model: "jev-1.13.0" }),
+    );
+    assert.equal(lines.headline, '🛡 jev allowed · bash · 299ms · cd /tmp && python3 -c "print(1)"');
+    assert.equal(lines.detail, undefined);
+  });
+
+  it("keeps the rationale for a block, because the user has to act on it", async () => {
+    const { formatCompactLines } = await import("../src/records.ts");
+    const lines = formatCompactLines(
+      record({ status: "blocked", source: "hard-deny", rationale: "Deletes\nhistory.", latencyMs: undefined }),
+    );
+    assert.equal(lines.headline, "⛔ jev blocked · bash · via hard-deny · git reset --hard HEAD~1");
+    assert.equal(lines.detail, "Deletes history.");
+  });
+});
+
+describe("decision entry renderer", () => {
+  type Renderer = (entry: { data?: DecisionRecord }, options: { expanded: boolean }, theme: unknown) => { render(width: number): string[] } | undefined;
+  const theme = { fg: (_: string, text: string) => text, bg: (_: string, text: string) => text, bold: (text: string) => text };
+
+  async function capture(mode?: "full" | "compact"): Promise<Renderer> {
+    const { registerDecisionEntryRenderer } = await import("../src/records.ts");
+    let renderer: Renderer | undefined;
+    const pi = { registerEntryRenderer: (_: string, fn: Renderer) => (renderer = fn) };
+    registerDecisionEntryRenderer(pi as never, mode === undefined ? undefined : () => mode);
+    assert.ok(renderer);
+    return renderer;
+  }
+
+  const long = record({ summary: `cd ${"/very/long/path".repeat(20)} && python3 -c "x"`, latencyMs: 299 });
+
+  it("renders a compact approval as one clipped line", async () => {
+    const lines = (await capture("compact"))({ data: long }, { expanded: false }, theme)?.render(60) ?? [];
+    assert.equal(lines.length, 1);
+    assert.match(lines[0] ?? "", /jev allowed · bash · 299ms/);
+  });
+
+  it("shows every detail when expanded, even in compact mode", async () => {
+    const lines = (await capture("compact"))({ data: long }, { expanded: true }, theme)?.render(60) ?? [];
+    assert.ok(lines.some((line) => line.includes("rationale:")));
+    assert.ok(lines.length > 5);
+  });
+
+  it("keeps the full view by default", async () => {
+    const lines = (await capture())({ data: long }, { expanded: false }, theme)?.render(60) ?? [];
+    assert.ok(lines.some((line) => line.includes("rationale:")));
+    assert.ok(lines.length > 3);
+  });
+});
