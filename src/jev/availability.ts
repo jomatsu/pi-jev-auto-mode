@@ -12,10 +12,13 @@
  * not require touching the stored credential.
  */
 
+import type { JevProvider } from "../settings.ts";
+
 export type JevKeySource = "env" | "stored" | "none";
 
 export interface JevAvailability {
   readonly available: boolean;
+  readonly provider: JevProvider;
   readonly apiKey?: string;
   readonly model: string;
   readonly source: JevKeySource;
@@ -25,29 +28,33 @@ export interface JevAvailability {
 export function describeJevAvailability(
   env: NodeJS.ProcessEnv = process.env,
   storedApiKey?: string,
+  provider: JevProvider = "typesafe",
 ): JevAvailability {
-  const model = env.TYPESAFE_DEFAULT_MODEL?.trim() || "jev-latest";
+  const keyName = provider === "openrouter" ? "OPENROUTER_API_KEY" : "TYPESAFE_API_KEY";
+  const model = (provider === "openrouter" ? env.OPENROUTER_DEFAULT_MODEL : env.TYPESAFE_DEFAULT_MODEL)?.trim()
+    || (provider === "openrouter" ? "typesafe/jev-1.13" : "jev-latest");
 
-  const environmentKey = env.TYPESAFE_API_KEY?.trim();
+  const environmentKey = env[keyName]?.trim();
   if (environmentKey) {
-    return { available: true, apiKey: environmentKey, model, source: "env" };
+    return { available: true, provider, apiKey: environmentKey, model, source: "env" };
   }
 
   const stored = storedApiKey?.trim();
   if (stored) {
-    return { available: true, apiKey: stored, model, source: "stored" };
+    return { available: true, provider, apiKey: stored, model, source: "stored" };
   }
 
   return {
     available: false,
+    provider,
     model,
     source: "none",
-    reason: "no TypeSafe API key is available (run /jev-auto-mode login, or set TYPESAFE_API_KEY)",
+    reason: `no ${provider === "openrouter" ? "OpenRouter" : "TypeSafe"} API key is available (run /jev-auto-mode login, or set ${keyName})`,
   };
 }
 
-export function describeKeySource(source: JevKeySource): string {
-  if (source === "env") return "TYPESAFE_API_KEY";
+export function describeKeySource(source: JevKeySource, provider: JevProvider = "typesafe"): string {
+  if (source === "env") return provider === "openrouter" ? "OPENROUTER_API_KEY" : "TYPESAFE_API_KEY";
   if (source === "stored") return "stored secret (/jev-auto-mode login)";
   return "none";
 }

@@ -101,8 +101,9 @@ Packages are discovered in the [package gallery](https://pi.dev/packages) throug
 ```
 /jev-auto-mode            show status (settings + where the API key comes from)
 /jev-auto-mode on|off     toggle auto mode
-/jev-auto-mode login      store a TypeSafe API key (verified, then saved 0600)
-/jev-auto-mode logout     remove the stored key
+/jev-auto-mode provider typesafe|openrouter  select semantic decision provider
+/jev-auto-mode login      store the selected provider's API key (verified, then saved 0600)
+/jev-auto-mode logout     remove the selected provider's stored key
 /jev-auto-mode policy     list the policy notes
 /jev-auto-mode policy edit
 /jev-auto-mode policy clear
@@ -125,17 +126,23 @@ the rationale. The expanded view shows every detail in either mode.
 pi --jev-auto-mode        start with auto mode enabled
 ```
 
-The semantic layer needs a [TypeSafe](https://typesafe.ai/) API key. Jev is early access, so an
-account may be waitlisted; **the gate still works without one**. Its own rules keep running —
-read-only and user-declared safe commands pass, hard-deny shapes are blocked — but a call
-nothing vouches for is blocked with "Not connected to Jev" instead of being judged.
+The semantic layer uses the configured provider, which defaults to `typesafe`. Set
+`"provider": "openrouter"` in global settings or trusted project settings to select OpenRouter;
+`/jev-auto-mode provider typesafe|openrouter` changes the active provider. Jev is early access,
+so a TypeSafe account may be waitlisted; deterministic rules keep running without a usable key,
+but escalated calls that cannot be judged are blocked.
 
-`/jev-auto-mode login` asks for the key, verifies it against the API (`GET /v1/models`), and
-stores it as an owner-only file at
-`$PI_CODING_AGENT_DIR/secrets/jev-auto-mode-typesafe-api-key` (mode `0600`) — the same place Pi
-keeps its own credentials, so it is never committed with a project. `TYPESAFE_API_KEY` takes
-precedence when set, so a one-off or CI override needs no login. `TYPESAFE_DEFAULT_MODEL`
-selects the model (default `jev-latest`).
+`/jev-auto-mode login` and `logout` apply to the currently selected provider. Login verifies the
+key before saving it; credentials are stored in provider-specific owner-only files (mode `0600`)
+under `$PI_CODING_AGENT_DIR/secrets/`, never in project settings. `TYPESAFE_API_KEY` and
+`OPENROUTER_API_KEY` override the respective stored keys. `TYPESAFE_DEFAULT_MODEL` selects the
+TypeSafe model (default `jev-latest`); `OPENROUTER_DEFAULT_MODEL` selects the OpenRouter model
+(default `typesafe/jev-1.13`). The TypeSafe SDK sends OpenRouter decisions to
+[https://openrouter.ai/api/v1/systemone](https://openrouter.ai/docs/guides/community/typesafe-sdk).
+
+Model availability, pricing, routing, and behavior may differ on OpenRouter. Check current
+pricing before use; calibration and thresholds measured with one provider/model are not a
+guarantee for another. Recalibrate and review decision records when changing provider/model.
 
 A key is only stored after the API accepts it: a typo that got saved would turn into a gate
 that silently blocks every escalated call. If the API cannot be reached the key is not stored
@@ -202,6 +209,7 @@ Policy notes: `$PI_CODING_AGENT_DIR/jev-auto-mode-policy.md`.
   "uncertain": "deny",
   "gateScope": "all",
   "display": "compact",
+  "provider": "typesafe",
   "thresholds": {}
 }
 ```
@@ -225,7 +233,8 @@ Policy notes: `$PI_CODING_AGENT_DIR/jev-auto-mode-policy.md`.
 
 ## What leaves the machine
 
-An escalated call sends the following to TypeSafe's API (`api.typesafe.ai`):
+An escalated call sends the following to the selected provider: TypeSafe (`api.typesafe.ai`) or
+OpenRouter ([System One API](https://openrouter.ai/docs/guides/community/typesafe-sdk)):
 
 - the tool name and the bash command text (truncated),
 - for `write` / `edit`: the target **path** — never the file contents or the diff,
@@ -270,6 +279,7 @@ Layout:
 | `src/jev/decide.ts` | probability → condition verdict → decision |
 | `src/jev/engine.ts` | one request per call, budget guard, calibration hook |
 | `src/jev/transport.ts` | the SDK, wrapped so failures become decisions |
+| `src/jev/openrouter.ts` | OpenRouter SDK adapter and API-key verification |
 | `src/jev/response.ts` | response re-validation (a 200 is not an answer) |
 | `src/settings.ts` | global/project settings, policy notes, and the stored API key |
 | `src/records.ts` | `appendEntry` records and their renderer |

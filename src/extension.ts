@@ -27,11 +27,13 @@ import {
   DEFAULT_RULES,
   createJevEngine,
   createSdkTransport,
+  createOpenRouterTransport,
   describeJevAvailability,
   describeKeySource,
   formatThreshold,
   ruleById,
   verifyApiKey,
+  verifyOpenRouterApiKey,
   type JevAvailability,
   type Observation,
   type ObservationMeta,
@@ -57,6 +59,7 @@ import {
   JevAutoModeStore,
   isDisplayMode,
   isGateScope,
+  isJevProvider,
   isUncertainAction,
   parseThreshold,
   type JevAutoModeSettings,
@@ -87,7 +90,7 @@ export const MANUAL_ENGINE_ID = "manual";
 
 /** Shown (and used as the block reason) when the gate has no Jev connection. */
 export const NO_ENGINE_MESSAGE =
-  "Not connected to Jev (no TypeSafe API key is set). Run `/jev-auto-mode login` to set a key, or `/jev-auto-mode off` to stop auto mode.";
+  "Not connected to Jev (no API key is set for the selected provider). Run `/jev-auto-mode login` to set a key, or `/jev-auto-mode off` to stop auto mode.";
 
 /** Structural context: what this extension needs from Pi, and nothing more. */
 export interface GateUi {
@@ -494,11 +497,11 @@ export function createEngine(
 ): DecisionEngine {
   if (options.engine) return options.engine;
 
-  const availability = describeJevAvailability(options.env ?? process.env, storedApiKey);
+  const availability = describeJevAvailability(options.env ?? process.env, storedApiKey, settings.provider);
   if (!availability.available || !availability.apiKey) return createManualEngine();
 
   return createJevEngine({
-    transport: createSdkTransport({
+    transport: (settings.provider === "openrouter" ? createOpenRouterTransport : createSdkTransport)({
       apiKey: availability.apiKey,
       timeoutMs: settings.timeoutMs,
       maxRetries: settings.maxRetries,
@@ -536,13 +539,13 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
     record: options.record ?? createRecorder(pi),
     now,
   };
-  let availability: JevAvailability = describeJevAvailability(options.env ?? process.env);
+  let availability: JevAvailability = describeJevAvailability(options.env ?? process.env, undefined, state.settings.provider);
   let loaded = false;
 
   /** Rebuild the engine from the settings and the currently resolvable key. */
   const rebuildEngine = async (): Promise<void> => {
-    const storedApiKey = await store.readStoredApiKey();
-    availability = describeJevAvailability(options.env ?? process.env, storedApiKey);
+    const storedApiKey = await store.readStoredApiKey(state.settings.provider);
+    availability = describeJevAvailability(options.env ?? process.env, storedApiKey, state.settings.provider);
     deps = { ...deps, engine: createEngine(state.settings, engineOptions, storedApiKey) };
   };
 
@@ -581,7 +584,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
       const value = String(argumentPrefix ?? "");
       const tokens = value.split(/\s+/).filter(Boolean);
       if (tokens.length === 0) {
-        return ["status", "on", "off", "policy", "threshold", "scope", "uncertain", "display", "login", "logout"].map((item) => ({
+        return ["status", "on", "off", "provider", "policy", "threshold", "scope", "uncertain", "display", "login", "logout"].map((item) => ({
           value: item,
           label: item,
         }));
@@ -617,7 +620,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
         "",
         describeSettings(state.settings, state.scope),
         availability.available
-          ? `semantic layer: ${availability.model} (key from ${describeKeySource(availability.source)})`
+          ? `semantic layer: ${availability.provider} / ${availability.model} (key from ${describeKeySource(availability.source, availability.provider)})`
           : `semantic layer: unavailable (${availability.reason ?? "unknown reason"})`,
       ].join("\n");
 
@@ -664,15 +667,34 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
         return;
       }
 
+      if (value === "provider" || value.startsWith("provider ")) {
+        const provider = value.slice("provider".length).trim();
+        if (provider === "") {
+          ctx.ui.notify(`semantic provider: ${state.settings.provider} (typesafe | openrouter)`, "info");
+          return;
+        }
+        if (!isJevProvider(provider)) {
+          ctx.ui.notify("Expected provider typesafe or openrouter.", "error");
+          return;
+        }
+        state.settings = { ...state.settings, provider };
+        await save(gateContext);
+        await rebuildEngine();
+        updateStatus(gateContext, { enabled: state.settings.enabled, engineId: deps.engine.id, scope: state.scope });
+        ctx.ui.notify(`Semantic provider: ${provider}. ${availability.available ? `Using ${availability.model} (${describeKeySource(availability.source, provider)}).` : availability.reason}`, "info");
+        return;
+      }
+
       if (value === "login") {
-        const entered = await ctx.ui.input("TypeSafe API key", "apikey_...");
+        const provider = state.settings.provider;
+        const entered = await ctx.ui.input(`${provider === "openrouter" ? "OpenRouter" : "TypeSafe"} API key`, provider === "openrouter" ? "sk-or-..." : "apikey_...");
         const apiKey = entered?.trim();
         if (!apiKey) {
           ctx.ui.notify("Login cancelled: no key entered.", "info");
           return;
         }
 
-        const verification = await verifyApiKey({
+        const verification = await (provider === "openrouter" ? verifyOpenRouterApiKey : verifyApiKey)({
           apiKey,
           ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
         });
@@ -682,13 +704,13 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
         }
         if (!verification.ok) {
           ctx.ui.notify(
-            "Could not reach the TypeSafe API to verify the key, so nothing was saved. Check the connection and try again.",
+            `Could not reach the ${provider === "openrouter" ? "OpenRouter" : "TypeSafe"} API to verify the key, so nothing was saved. Check the connection and try again.`,
             "error",
           );
           return;
         }
 
-        await store.writeStoredApiKey(apiKey);
+        await store.writeStoredApiKey(apiKey, provider);
         await rebuildEngine();
         updateStatus(gateContext, {
           enabled: state.settings.enabled,
@@ -696,27 +718,27 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
           scope: state.scope,
         });
         ctx.ui.notify(
-          `API key verified and stored at ${store.credentialPath()} (mode 600).\n\nSemantic layer: ${availability.model} (key from ${describeKeySource(availability.source)})`,
+          `API key verified and stored at ${store.credentialPath(provider)} (mode 600).\n\nSemantic layer: ${availability.model} (key from ${describeKeySource(availability.source, provider)})`,
           "info",
         );
         return;
       }
 
       if (value === "logout") {
-        const storedApiKey = await store.readStoredApiKey();
+        const storedApiKey = await store.readStoredApiKey(state.settings.provider);
         if (!storedApiKey) {
           ctx.ui.notify("No stored API key to remove.", "info");
           return;
         }
         const confirmed = await ctx.ui.confirm(
-          "Remove the stored TypeSafe API key?",
+          `Remove the stored ${state.settings.provider === "openrouter" ? "OpenRouter" : "TypeSafe"} API key?`,
           availability.source === "env"
-            ? "It is not in use anyway: TYPESAFE_API_KEY takes precedence."
+            ? `It is not in use anyway: ${describeKeySource("env", state.settings.provider)} takes precedence.`
             : "Without a key the gate blocks every call it cannot vouch for, and says why.",
         );
         if (!confirmed) return;
 
-        await store.deleteStoredApiKey();
+        await store.deleteStoredApiKey(state.settings.provider);
         await rebuildEngine();
         updateStatus(gateContext, {
           enabled: state.settings.enabled,
@@ -725,7 +747,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
         });
         ctx.ui.notify(
           availability.available
-            ? `Stored key removed. Still using ${describeKeySource(availability.source)}.`
+            ? `Stored key removed. Still using ${describeKeySource(availability.source, availability.provider)}.`
             : "Stored key removed. The gate will block calls it cannot vouch for until a key is set again.",
           "info",
         );

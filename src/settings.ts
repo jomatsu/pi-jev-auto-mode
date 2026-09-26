@@ -16,6 +16,8 @@ import { dirname, join } from "node:path";
 
 export interface JevAutoModeSettings {
   readonly enabled: boolean;
+  /** API used for semantic judgments. */
+  readonly provider: JevProvider;
   /** Per-attempt Jev timeout. Kept short: this is a gate, not a batch job. */
   readonly timeoutMs: number;
   /** Retries after the first attempt. */
@@ -54,6 +56,12 @@ export interface JevAutoModeSettings {
    * expansion key) always shows every detail, whichever mode is set.
    */
   readonly display: DisplayMode;
+}
+
+export type JevProvider = "typesafe" | "openrouter";
+
+export function isJevProvider(value: unknown): value is JevProvider {
+  return value === "typesafe" || value === "openrouter";
 }
 
 export type DisplayMode = "full" | "compact";
@@ -97,6 +105,7 @@ export function isGateScope(value: unknown): value is GateScope {
 
 export const DEFAULT_SETTINGS: JevAutoModeSettings = {
   enabled: true,
+  provider: "typesafe",
   timeoutMs: 4000,
   maxRetries: 1,
   safeCommands: [],
@@ -115,7 +124,10 @@ const MAX_PATTERN_LENGTH = 300;
 const MAX_THRESHOLD_ENTRIES = 32;
 const MAX_RULE_ID_LENGTH = 64;
 const MAX_POLICY_NOTES_LENGTH = 8000;
-const CREDENTIAL_FILE_NAME = "jev-auto-mode-typesafe-api-key";
+const CREDENTIAL_FILE_NAMES: Record<JevProvider, string> = {
+  typesafe: "jev-auto-mode-typesafe-api-key",
+  openrouter: "jev-auto-mode-openrouter-api-key",
+};
 /** Mirrors Pi's own secret directory/file modes. */
 const SECRET_DIRECTORY_MODE = 0o700;
 const SECRET_FILE_MODE = 0o600;
@@ -193,6 +205,7 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
   const patch: SettingsPatch = {};
 
   if (typeof record.enabled === "boolean") patch.enabled = record.enabled;
+  if (isJevProvider(record.provider)) patch.provider = record.provider;
 
   const timeoutMs = readBoundedInteger(record.timeoutMs, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS);
   if (timeoutMs !== undefined) patch.timeoutMs = timeoutMs;
@@ -314,13 +327,13 @@ export class JevAutoModeStore {
     await writeFileAtomic(this.policyNotesPath(), notes.slice(0, MAX_POLICY_NOTES_LENGTH));
   }
 
-  credentialPath(): string {
-    return join(this.agentDir, "secrets", CREDENTIAL_FILE_NAME);
+  credentialPath(provider: JevProvider = "typesafe"): string {
+    return join(this.agentDir, "secrets", CREDENTIAL_FILE_NAMES[provider]);
   }
 
-  async readStoredApiKey(): Promise<string | undefined> {
+  async readStoredApiKey(provider: JevProvider = "typesafe"): Promise<string | undefined> {
     try {
-      const value = (await readFile(this.credentialPath(), "utf8")).trim();
+      const value = (await readFile(this.credentialPath(provider), "utf8")).trim();
       return value.length > 0 ? value : undefined;
     } catch {
       return undefined;
@@ -334,8 +347,8 @@ export class JevAutoModeStore {
    * again afterwards: an existing file with looser permissions is tightened rather
    * than trusted.
    */
-  async writeStoredApiKey(apiKey: string): Promise<void> {
-    const path = this.credentialPath();
+  async writeStoredApiKey(apiKey: string, provider: JevProvider = "typesafe"): Promise<void> {
+    const path = this.credentialPath(provider);
     const directory = dirname(path);
     await mkdir(directory, { recursive: true, mode: SECRET_DIRECTORY_MODE });
     await chmod(directory, SECRET_DIRECTORY_MODE).catch(() => undefined);
@@ -343,7 +356,7 @@ export class JevAutoModeStore {
     await chmod(path, SECRET_FILE_MODE).catch(() => undefined);
   }
 
-  async deleteStoredApiKey(): Promise<void> {
-    await rm(this.credentialPath(), { force: true });
+  async deleteStoredApiKey(provider: JevProvider = "typesafe"): Promise<void> {
+    await rm(this.credentialPath(provider), { force: true });
   }
 }
