@@ -150,6 +150,22 @@ describe("JevAutoModeStore", () => {
   });
 });
 
+describe("provider setting persistence", () => {
+  it("updates only the provider in global settings, creating the file when absent", async () => {
+    const dir = await tempDir();
+    const cwd = join(dir, "project");
+    const store = new JevAutoModeStore({ agentDir: join(dir, "agent"), configDirName: ".pi" });
+    await store.saveProvider("openrouter", "global", cwd);
+    assert.deepEqual(JSON.parse(await readFile(store.globalSettingsPath(), "utf8")), { provider: "openrouter" });
+    await store.saveSettings({ ...DEFAULT_SETTINGS, enabled: false, timeoutMs: 1200 }, "global", cwd);
+    await store.saveProvider("typesafe", "global", cwd);
+    const loaded = await store.loadSettings(cwd, false);
+    assert.equal(loaded.settings.enabled, false);
+    assert.equal(loaded.settings.timeoutMs, 1200);
+    assert.equal(loaded.settings.provider, "typesafe");
+  });
+});
+
 describe("provider-specific credentials", () => {
   it("keeps OpenRouter and TypeSafe credentials separate", async () => {
     const dir = await tempDir();

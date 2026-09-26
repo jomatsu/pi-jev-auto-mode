@@ -314,6 +314,13 @@ export class JevAutoModeStore {
     await writeFileAtomic(path, `${JSON.stringify(settings, null, 2)}\n`);
   }
 
+  /** Change only the provider, leaving other global/project overrides untouched. */
+  async saveProvider(provider: JevProvider, scope: SettingsScope, cwd: string): Promise<void> {
+    const path = scope === "project" ? this.projectSettingsPath(cwd) : this.globalSettingsPath();
+    const current = await readJsonFile(path);
+    await writeFileAtomic(path, `${JSON.stringify({ ...(isRecord(current) ? current : {}), provider }, null, 2)}\n`);
+  }
+
   /** User-authored policy notes. Advisory input to Jev, never a hard rule. */
   async loadPolicyNotes(): Promise<string> {
     try {

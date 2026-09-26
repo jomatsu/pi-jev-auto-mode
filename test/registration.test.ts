@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
@@ -240,14 +240,18 @@ describe("command wiring", () => {
 
   it("persists a provider switch in the active trusted project scope", async () => {
     const { cwd, store, harness } = await setup();
-    await store.saveSettings({ ...DEFAULT_SETTINGS, provider: "openrouter" }, "global", cwd);
-    await store.saveSettings({ ...DEFAULT_SETTINGS, provider: "openrouter" }, "project", cwd);
+    await store.saveSettings({ ...DEFAULT_SETTINGS, provider: "openrouter", timeoutMs: 9000 }, "global", cwd);
+    await mkdir(join(cwd, ".pi"), { recursive: true });
+    await writeFile(store.projectSettingsPath(cwd), '{"provider":"openrouter"}\n');
     await harness.handlers.get("session_start")?.[0]?.({}, createContext(harness, cwd));
     const command = harness.commands.get(AUTO_MODE_COMMAND);
     assert.ok(command);
     await command.handler("provider typesafe", createContext(harness, cwd));
     assert.equal((await store.loadSettings(cwd, true)).settings.provider, "typesafe");
     assert.equal((await store.loadSettings(cwd, false)).settings.provider, "openrouter");
+    assert.deepEqual(JSON.parse(await readFile(store.projectSettingsPath(cwd), "utf8")), { provider: "typesafe" });
+    await store.saveSettings({ ...DEFAULT_SETTINGS, provider: "openrouter", timeoutMs: 12000 }, "global", cwd);
+    assert.equal((await store.loadSettings(cwd, true)).settings.timeoutMs, 12000, "provider switch must not pin unrelated global settings");
     await harness.handlers.get("session_start")?.[0]?.({}, createContext(harness, cwd));
     await command.handler("status", createContext(harness, cwd));
     assert.match(harness.notifications.at(-1)?.message ?? "", /provider: typesafe/);

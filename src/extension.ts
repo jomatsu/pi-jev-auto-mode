@@ -683,7 +683,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
         const nextEngine = createEngine(nextSettings, engineOptions, storedApiKey);
         // A trusted project override must not rewrite the global provider. Prepare
         // the engine before persisting so a failed switch leaves the gate unchanged.
-        await store.saveSettings(nextSettings, state.scope, gateContext.cwd);
+        await store.saveProvider(provider, state.scope, gateContext.cwd);
         state.settings = nextSettings;
         availability = nextAvailability;
         deps = { ...deps, engine: nextEngine };
