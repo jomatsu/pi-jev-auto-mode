@@ -104,7 +104,7 @@ through the TypeSafe SDK. The payload is deliberately narrow:
 | tool name, bash command text (truncated) | file contents, diffs, `write` bodies |
 | write/edit target path, cwd | tool output, assistant messages |
 | matched policy reason names | environment variables |
-| recent user messages (bounded, ≤4k chars) | the API key itself |
+| recent user messages (bounded, ≤4k chars) | API key in judgment state (sent separately as an auth header) |
 | policy notes | |
 
 The selected provider's API key is stored in its separate `0600` file under

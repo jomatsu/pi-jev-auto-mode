@@ -128,12 +128,14 @@ pi --jev-auto-mode        start with auto mode enabled
 
 The semantic layer uses the configured provider, which defaults to `typesafe`. Set
 `"provider": "openrouter"` in global settings or trusted project settings to select OpenRouter;
-`/jev-auto-mode provider typesafe|openrouter` changes the active provider. Jev is early access,
+`/jev-auto-mode provider typesafe|openrouter` changes the active provider and saves it in the
+active settings scope (global, or a trusted project override). Jev is early access,
 so a TypeSafe account may be waitlisted; deterministic rules keep running without a usable key,
 but escalated calls that cannot be judged are blocked.
 
 `/jev-auto-mode login` and `logout` apply to the currently selected provider. Login verifies the
-key before saving it; credentials are stored in provider-specific owner-only files (mode `0600`)
+key with [OpenRouter's current-key endpoint](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-api-key)
+(or TypeSafe's model list) before saving it; credentials are stored in provider-specific owner-only files (mode `0600`)
 under `$PI_CODING_AGENT_DIR/secrets/`, never in project settings. `TYPESAFE_API_KEY` and
 `OPENROUTER_API_KEY` override the respective stored keys. `TYPESAFE_DEFAULT_MODEL` selects the
 TypeSafe model (default `jev-latest`); `OPENROUTER_DEFAULT_MODEL` selects the OpenRouter model

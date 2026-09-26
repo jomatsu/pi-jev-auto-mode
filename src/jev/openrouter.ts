@@ -4,7 +4,7 @@ import type { SdkTransportOptions } from "./transport.ts";
 import type { JevTransport } from "./types.ts";
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api";
-const AUTH_KEY_URL = "https://openrouter.ai/api/v1/auth/key";
+const AUTH_KEY_URL = "https://openrouter.ai/api/v1/key";
 
 export interface OpenRouterTransportOptions {
   readonly apiKey: string;
@@ -32,7 +32,7 @@ export function createOpenRouterTransport(options: OpenRouterTransportOptions): 
   return sdkTransport;
 }
 
-/** Verify an OpenRouter key with its dedicated auth-key endpoint. */
+/** Verify an OpenRouter key with its authenticated current-key endpoint. */
 export async function verifyOpenRouterApiKey(options: {
   readonly apiKey: string;
   readonly fetch?: SdkTransportOptions["fetch"];
@@ -58,7 +58,9 @@ export async function verifyOpenRouterApiKey(options: {
       return { ok: false, reason: "unreachable" };
     }
     const data = (body as { data?: unknown }).data;
-    if (typeof data !== "object" || data === null || Array.isArray(data)) {
+    if (typeof data !== "object" || data === null || Array.isArray(data)
+      || typeof (data as { label?: unknown }).label !== "string"
+      || (data as { label: string }).label.length === 0) {
       return { ok: false, reason: "unreachable" };
     }
     return { ok: true };

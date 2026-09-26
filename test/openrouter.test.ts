@@ -79,7 +79,7 @@ describe("OpenRouter TypeSafe transport", () => {
 });
 
 describe("verifyOpenRouterApiKey", () => {
-  it("uses the auth-key endpoint with bearer token and verifies valid data", async () => {
+  it("uses the current-key endpoint with bearer token and verifies valid data", async () => {
     let url = "";
     let init: RequestInit | undefined;
     const result = await verifyOpenRouterApiKey({
@@ -90,7 +90,7 @@ describe("verifyOpenRouterApiKey", () => {
         return jsonResponse({ data: { label: "test", limit: null } });
       },
     });
-    assert.equal(url, "https://openrouter.ai/api/v1/auth/key");
+    assert.equal(url, "https://openrouter.ai/api/v1/key");
     assert.equal(init?.method, "GET");
     assert.equal((init?.headers as Record<string, string>).Authorization, "Bearer or-key");
     assert.deepEqual(result, { ok: true });
@@ -100,7 +100,7 @@ describe("verifyOpenRouterApiKey", () => {
     for (const status of [401, 403]) {
       assert.deepEqual(await verifyOpenRouterApiKey({ apiKey: "x", fetch: async () => new Response("", { status }) }), { ok: false, reason: "invalid" });
     }
-    for (const response of [new Response("", { status: 500 }), jsonResponse({}), jsonResponse({ data: [] })]) {
+    for (const response of [new Response("", { status: 500 }), jsonResponse({}), jsonResponse({ data: [] }), jsonResponse({ data: {} }), jsonResponse({ data: { label: "" } })]) {
       assert.deepEqual(await verifyOpenRouterApiKey({ apiKey: "x", fetch: async () => response }), { ok: false, reason: "unreachable" });
     }
   });

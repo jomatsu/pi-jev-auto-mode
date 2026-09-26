@@ -677,9 +677,16 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
           ctx.ui.notify("Expected provider typesafe or openrouter.", "error");
           return;
         }
-        state.settings = { ...state.settings, provider };
-        await save(gateContext);
-        await rebuildEngine();
+        const nextSettings = { ...state.settings, provider };
+        const storedApiKey = await store.readStoredApiKey(provider);
+        const nextAvailability = describeJevAvailability(options.env ?? process.env, storedApiKey, provider);
+        const nextEngine = createEngine(nextSettings, engineOptions, storedApiKey);
+        // A trusted project override must not rewrite the global provider. Prepare
+        // the engine before persisting so a failed switch leaves the gate unchanged.
+        await store.saveSettings(nextSettings, state.scope, gateContext.cwd);
+        state.settings = nextSettings;
+        availability = nextAvailability;
+        deps = { ...deps, engine: nextEngine };
         updateStatus(gateContext, { enabled: state.settings.enabled, engineId: deps.engine.id, scope: state.scope });
         ctx.ui.notify(`Semantic provider: ${provider}. ${availability.available ? `Using ${availability.model} (${describeKeySource(availability.source, provider)}).` : availability.reason}`, "info");
         return;
@@ -718,27 +725,28 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
           scope: state.scope,
         });
         ctx.ui.notify(
-          `API key verified and stored at ${store.credentialPath(provider)} (mode 600).\n\nSemantic layer: ${availability.model} (key from ${describeKeySource(availability.source, provider)})`,
+          `API key verified and stored at ${store.credentialPath(provider)} (mode 600).\n\nSemantic layer: ${availability.provider} / ${availability.model} (key from ${describeKeySource(availability.source, availability.provider)})`,
           "info",
         );
         return;
       }
 
       if (value === "logout") {
-        const storedApiKey = await store.readStoredApiKey(state.settings.provider);
+        const provider = state.settings.provider;
+        const storedApiKey = await store.readStoredApiKey(provider);
         if (!storedApiKey) {
           ctx.ui.notify("No stored API key to remove.", "info");
           return;
         }
         const confirmed = await ctx.ui.confirm(
-          `Remove the stored ${state.settings.provider === "openrouter" ? "OpenRouter" : "TypeSafe"} API key?`,
-          availability.source === "env"
-            ? `It is not in use anyway: ${describeKeySource("env", state.settings.provider)} takes precedence.`
+          `Remove the stored ${provider === "openrouter" ? "OpenRouter" : "TypeSafe"} API key?`,
+          availability.provider === provider && availability.source === "env"
+            ? `It is not in use anyway: ${describeKeySource("env", provider)} takes precedence.`
             : "Without a key the gate blocks every call it cannot vouch for, and says why.",
         );
         if (!confirmed) return;
 
-        await store.deleteStoredApiKey(state.settings.provider);
+        await store.deleteStoredApiKey(provider);
         await rebuildEngine();
         updateStatus(gateContext, {
           enabled: state.settings.enabled,
