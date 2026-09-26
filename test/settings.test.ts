@@ -31,10 +31,17 @@ describe("parseSettingsPatch", () => {
   });
 
   it("defaults to judging everything the deterministic layer cannot vouch for", () => {
+    assert.equal(DEFAULT_SETTINGS.provider, "typesafe");
     assert.equal(DEFAULT_SETTINGS.gateScope, "all");
     assert.equal(parseSettingsPatch({ gateScope: "matched" }).gateScope, "matched");
     assert.equal(parseSettingsPatch({ gateScope: "all" }).gateScope, "all");
     assert.equal(parseSettingsPatch({ gateScope: "sometimes" }).gateScope, undefined);
+  });
+
+  it("accepts only supported providers and does not trust malformed overrides", () => {
+    assert.equal(parseSettingsPatch({ provider: "openrouter" }).provider, "openrouter");
+    assert.equal(parseSettingsPatch({ provider: "other" }).provider, undefined);
+    assert.equal(parseSettingsPatch({ provider: null }).provider, undefined);
   });
 
   it("accepts only known uncertain actions", () => {
@@ -140,6 +147,37 @@ describe("JevAutoModeStore", () => {
 
     await store.savePolicyNotes("x".repeat(20_000));
     assert.equal((await store.loadPolicyNotes()).length, 8000);
+  });
+});
+
+describe("provider setting persistence", () => {
+  it("updates only the provider in global settings, creating the file when absent", async () => {
+    const dir = await tempDir();
+    const cwd = join(dir, "project");
+    const store = new JevAutoModeStore({ agentDir: join(dir, "agent"), configDirName: ".pi" });
+    await store.saveProvider("openrouter", "global", cwd);
+    assert.deepEqual(JSON.parse(await readFile(store.globalSettingsPath(), "utf8")), { provider: "openrouter" });
+    await store.saveSettings({ ...DEFAULT_SETTINGS, enabled: false, timeoutMs: 1200 }, "global", cwd);
+    await store.saveProvider("typesafe", "global", cwd);
+    const loaded = await store.loadSettings(cwd, false);
+    assert.equal(loaded.settings.enabled, false);
+    assert.equal(loaded.settings.timeoutMs, 1200);
+    assert.equal(loaded.settings.provider, "typesafe");
+  });
+});
+
+describe("provider-specific credentials", () => {
+  it("keeps OpenRouter and TypeSafe credentials separate", async () => {
+    const dir = await tempDir();
+    const store = new JevAutoModeStore({ agentDir: join(dir, "agent"), configDirName: ".pi" });
+    await store.writeStoredApiKey("typesafe-secret");
+    await store.writeStoredApiKey("openrouter-secret", "openrouter");
+    assert.notEqual(store.credentialPath(), store.credentialPath("openrouter"));
+    assert.equal(await store.readStoredApiKey("openrouter"), "openrouter-secret");
+    assert.equal(await store.readStoredApiKey(), "typesafe-secret");
+    await store.deleteStoredApiKey("openrouter");
+    assert.equal(await store.readStoredApiKey("openrouter"), undefined);
+    assert.equal(await store.readStoredApiKey(), "typesafe-secret");
   });
 });
 

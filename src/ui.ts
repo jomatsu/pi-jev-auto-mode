@@ -35,6 +35,7 @@ export function updateStatus(ctx: StatusContext, input: StatusInput): void {
 export function describeSettings(settings: JevAutoModeSettings, scope: SettingsScope): string {
   return [
     `enabled: ${settings.enabled}`,
+    `provider: ${settings.provider}`,
     `scope: ${scope}`,
     `timeout: ${settings.timeoutMs}ms (retries ${settings.maxRetries})`,
     `safe commands: ${settings.safeCommands.length}`,
@@ -139,7 +140,8 @@ export const USAGE_TEXT = [
   "Usage:",
   "  /jev-auto-mode                     show status",
   "  /jev-auto-mode on|off              toggle auto mode",
-  "  /jev-auto-mode login|logout        store or remove the TypeSafe API key",
+  "  /jev-auto-mode provider typesafe|openrouter  select the Jev API",
+  "  /jev-auto-mode login|logout        store or remove this provider's API key",
   "  /jev-auto-mode policy              list the user policy notes",
   "  /jev-auto-mode policy edit",
   "  /jev-auto-mode policy clear",

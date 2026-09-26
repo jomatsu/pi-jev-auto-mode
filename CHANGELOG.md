@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Add OpenRouter as an optional semantic decision provider. The default remains `typesafe`;
+  configure `provider: "openrouter"` globally or in trusted project settings, or switch with
+  `/jev-auto-mode provider typesafe|openrouter`. Login/logout use the selected provider's
+  separately stored key; environment overrides are `OPENROUTER_API_KEY` and
+  `TYPESAFE_API_KEY`. Document `OPENROUTER_DEFAULT_MODEL` (default `typesafe/jev-1.13`), the
+  OpenRouter System One API, outbound data, and model pricing/calibration caveats.
+
 ## 0.5.0 - 2026-09-24
 
 - **Decision records are compact by default.** An approval is drawn as one line — status, tool,

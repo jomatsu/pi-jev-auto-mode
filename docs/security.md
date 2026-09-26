@@ -45,7 +45,8 @@ If a wrong approval ever appears in practice, this is the mechanism to remove fi
 
 ## Failure modes and what happens
 
-Everything below resolves to **block**. Silence is never consent.
+Everything below resolves to **block**. Silence is never consent. This remains true for both
+`typesafe` (the default) and `openrouter` providers.
 
 | Failure | Resolution |
 |---|---|
@@ -81,23 +82,40 @@ when it said `deny` or when no decision was available.
 - The gate never returns a Jev rationale verbatim as a system-level instruction; a block
   reason is a tool-call error string, which is the weakest channel it can use.
 
-## What is sent to TypeSafe
+## Providers, credentials, and outbound data
 
-Judgment requires the content to leave the machine. The API is `api.typesafe.ai`, and the
-payload is deliberately narrow:
+`provider` defaults to `typesafe`; a global setting or trusted project setting may select
+`openrouter`, and `/jev-auto-mode provider typesafe|openrouter` changes the active provider.
+`/jev-auto-mode login` and `logout` operate on that selected provider's key. Keys are stored
+separately in provider-specific owner-only files (mode `0600`) under
+`$PI_CODING_AGENT_DIR/secrets/`; they are not stored in project settings. `TYPESAFE_API_KEY` and
+`OPENROUTER_API_KEY` override the corresponding stored key. Model selection uses
+`TYPESAFE_DEFAULT_MODEL` (default `jev-latest`) or `OPENROUTER_DEFAULT_MODEL` (default
+`typesafe/jev-1.13`).
+
+## What is sent to the selected provider
+
+Judgment requires the content to leave the machine. TypeSafe requests go to `api.typesafe.ai`;
+OpenRouter requests use its [System One API](https://openrouter.ai/docs/guides/community/typesafe-sdk)
+through the TypeSafe SDK. The payload is deliberately narrow:
 
 | Sent | Not sent |
 |---|---|
 | tool name, bash command text (truncated) | file contents, diffs, `write` bodies |
 | write/edit target path, cwd | tool output, assistant messages |
 | matched policy reason names | environment variables |
-| recent user messages (bounded, ≤4k chars) | the API key itself |
+| recent user messages (bounded, ≤4k chars) | API key in judgment state (sent separately as an auth header) |
 | policy notes | |
 
-The API key is stored as a `0600` file under `<agentDir>/secrets/`, the same place Pi keeps its
-own credentials. It is never written to the settings file, and it is never part of the judgment
-state: it travels only in the `Authorization` header to `api.typesafe.ai`, so it cannot come
-back out through a decision record.
+The selected provider's API key is stored in its separate `0600` file under
+`<agentDir>/secrets/`, the same place Pi keeps its own credentials. It is never written to a
+settings file or included in judgment state; it is used for provider authentication, not exposed
+in decision records. Environment variables take precedence over stored credentials.
+
+For OpenRouter, model choice and routing can affect price and which model processes the decision.
+Check the provider's current pricing and data-handling terms before use. A model with different
+behavior can shift judgment probabilities: calibration is model/provider-specific, and existing
+thresholds are not a safety guarantee after switching.
 
 Redaction runs before the state is built: `*_KEY=` / `*_TOKEN=` / `*_SECRET=` assignments,
 `Bearer …`, JWTs, `sk-` / `rk-` keys, `ghp_` / `gho_` tokens, `AKIA…` access key IDs,

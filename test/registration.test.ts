@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
@@ -190,6 +190,103 @@ describe("command wiring", () => {
     assert.match(message, /no key/);
     assert.match(message, /semantic layer: unavailable \(no TypeSafe API key is available \(run \/jev-auto-mode login/);
     assert.match(message, new RegExp(`max state characters: ${DEFAULT_SETTINGS.maxStateCharacters}`));
+  });
+
+  it("switches provider, verifies its own key, and routes judgments to OpenRouter", async () => {
+    const urls: string[] = [];
+    const { cwd, store, harness } = await setup({
+      fetch: async (url, init) => {
+        urls.push(url);
+        if (url.endsWith("/v1/key")) {
+          assert.equal((init?.headers as Record<string, string>).Authorization, "Bearer sk-or-valid");
+          return jsonResponse({ data: { label: "test" } });
+        }
+        assert.equal(url, "https://openrouter.ai/api/v1/systemone");
+        const body = JSON.parse(String(init?.body)) as { model: string; questions: Record<string, unknown> };
+        assert.equal(body.model, "typesafe/jev-1.13");
+        return jsonResponse({ model: body.model, answers: Object.fromEntries(Object.keys(body.questions).map((key) => [key, { type: "noul", noul: 0.99 }])) });
+      },
+    });
+    const command = harness.commands.get(AUTO_MODE_COMMAND);
+    assert.ok(command);
+    await command.handler("provider nowhere", createContext(harness, cwd));
+    assert.equal(harness.notifications.at(-1)?.type, "error");
+    assert.equal((await store.loadSettings(cwd, true)).settings.provider, "typesafe");
+
+    await command.handler("provider openrouter", createContext(harness, cwd));
+    assert.equal((await store.loadSettings(cwd, true)).settings.provider, "openrouter");
+    assert.equal(harness.statuses.at(-1), "🛡 jev no key (global)");
+    harness.enteredKey = "sk-or-valid";
+    await command.handler("login", createContext(harness, cwd));
+    assert.equal(await store.readStoredApiKey("openrouter"), "sk-or-valid");
+    assert.equal(await store.readStoredApiKey(), undefined);
+    assert.equal(harness.statuses.at(-1), "🛡 jev (global)");
+    assert.match(harness.notifications.at(-1)?.message ?? "", /typesafe\/jev-1\.13/);
+    const handler = harness.handlers.get("tool_call")?.[0];
+    assert.ok(handler);
+    const result = await handler({ toolName: "bash", input: { command: "npm test" } }, createContext(harness, cwd));
+    assert.equal(result, undefined);
+    assert.deepEqual(urls, ["https://openrouter.ai/api/v1/key", "https://openrouter.ai/api/v1/systemone"]);
+
+    await command.handler("logout", createContext(harness, cwd));
+    assert.equal(await store.readStoredApiKey("openrouter"), undefined);
+    assert.equal(harness.statuses.at(-1), "🛡 jev no key (global)");
+    const blocked = (await handler({ toolName: "bash", input: { command: "npm test" } }, createContext(harness, cwd))) as
+      | { block?: boolean }
+      | undefined;
+    assert.equal(blocked?.block, true, "a missing OpenRouter key must fail closed");
+    assert.equal(urls.length, 2, "a missing key must not contact the provider");
+  });
+
+  it("persists a provider switch in the active trusted project scope", async () => {
+    const { cwd, store, harness } = await setup();
+    await store.saveSettings({ ...DEFAULT_SETTINGS, provider: "openrouter", timeoutMs: 9000 }, "global", cwd);
+    await mkdir(join(cwd, ".pi"), { recursive: true });
+    await writeFile(store.projectSettingsPath(cwd), '{"provider":"openrouter"}\n');
+    await harness.handlers.get("session_start")?.[0]?.({}, createContext(harness, cwd));
+    const command = harness.commands.get(AUTO_MODE_COMMAND);
+    assert.ok(command);
+    await command.handler("provider typesafe", createContext(harness, cwd));
+    assert.equal((await store.loadSettings(cwd, true)).settings.provider, "typesafe");
+    assert.equal((await store.loadSettings(cwd, false)).settings.provider, "openrouter");
+    assert.deepEqual(JSON.parse(await readFile(store.projectSettingsPath(cwd), "utf8")), { provider: "typesafe" });
+    await store.saveSettings({ ...DEFAULT_SETTINGS, provider: "openrouter", timeoutMs: 12000 }, "global", cwd);
+    assert.equal((await store.loadSettings(cwd, true)).settings.timeoutMs, 12000, "provider switch must not pin unrelated global settings");
+    await harness.handlers.get("session_start")?.[0]?.({}, createContext(harness, cwd));
+    await command.handler("status", createContext(harness, cwd));
+    assert.match(harness.notifications.at(-1)?.message ?? "", /provider: typesafe/);
+  });
+
+  it("does not accept a TypeSafe key as an OpenRouter key", async () => {
+    const { cwd, store, harness } = await setup();
+    await store.writeStoredApiKey("typesafe-only");
+    const command = harness.commands.get(AUTO_MODE_COMMAND);
+    assert.ok(command);
+    await command.handler("provider openrouter", createContext(harness, cwd));
+    assert.equal(harness.statuses.at(-1), "🛡 jev no key (global)");
+    assert.match(harness.notifications.at(-1)?.message ?? "", /OPENROUTER_API_KEY/);
+  });
+
+  it("logout removes only the provider whose key the user confirmed", async () => {
+    const { cwd, store, harness } = await setup();
+    await store.writeStoredApiKey("typesafe-secret", "typesafe");
+    await store.writeStoredApiKey("router-secret", "openrouter");
+    const command = harness.commands.get(AUTO_MODE_COMMAND);
+    assert.ok(command);
+    const ctx = createContext(harness, cwd);
+    await command.handler("logout", {
+      ...ctx,
+      ui: {
+        ...ctx.ui,
+        confirm: async () => {
+          await command.handler("provider openrouter", createContext(harness, cwd));
+          return true;
+        },
+      },
+    });
+    assert.equal(await store.readStoredApiKey("typesafe"), undefined);
+    assert.equal(await store.readStoredApiKey("openrouter"), "router-secret");
+    assert.equal((await store.loadSettings(cwd, true)).settings.provider, "openrouter");
   });
 
   it("persists a threshold override and shows the tuning table", async () => {

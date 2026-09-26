@@ -583,6 +583,19 @@ describe("availability", () => {
     assert.equal(availability.source, "env");
   });
 
+  it("selects OpenRouter credentials and model without falling back to TypeSafe", () => {
+    const env = { TYPESAFE_API_KEY: "typesafe", OPENROUTER_API_KEY: "router", OPENROUTER_DEFAULT_MODEL: "~typesafe/jev-latest" };
+    const available = describeJevAvailability(env, "stored-router", "openrouter");
+    assert.equal(available.apiKey, "router");
+    assert.equal(available.model, "~typesafe/jev-latest");
+    assert.equal(available.provider, "openrouter");
+    assert.equal(describeJevAvailability({ TYPESAFE_API_KEY: "typesafe" }, undefined, "openrouter").available, false);
+    const stored = describeJevAvailability({}, "stored-router", "openrouter");
+    assert.equal(stored.apiKey, "stored-router");
+    assert.equal(stored.model, "typesafe/jev-1.13");
+    assert.match(describeJevAvailability({}, undefined, "openrouter").reason ?? "", /OPENROUTER_API_KEY/);
+  });
+
   it("reports how to fix a missing key", () => {
     const availability = describeJevAvailability({});
     assert.equal(availability.source, "none");
