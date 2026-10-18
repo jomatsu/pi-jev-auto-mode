@@ -34,6 +34,7 @@ export type JevUnavailableReason =
   | "http"
   | "malformed_response"
   | "state_too_large"
+  | "strands_completion_unknown"
   | "cancelled"
   | "unknown";
 

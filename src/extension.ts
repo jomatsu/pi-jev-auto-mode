@@ -27,15 +27,14 @@ import {
   DEFAULT_RULES,
   createJevEngine,
   createSdkTransport,
-  describeJevAvailability,
-  describeKeySource,
   formatThreshold,
   ruleById,
   verifyApiKey,
-  type JevAvailability,
   type Observation,
   type ObservationMeta,
 } from "./jev/index.ts";
+import { describeDecisionAvailability, type DecisionAvailability } from "./providers.ts";
+import { createHttpDecisionTransport } from "./decision-http.ts";
 import { extractRecentIntent } from "./intent.ts";
 import {
   dangerousReasons,
@@ -277,7 +276,7 @@ export async function evaluateToolCall(
   // Without a key there is nothing to judge with. Say so and stop, rather than
   // letting a call through unjudged or blocking it with an unexplained verdict.
   if (deps.engine.id === MANUAL_ENGINE_ID) {
-    const rationale = NO_ENGINE_MESSAGE;
+    const rationale = deps.engine.unavailableReason ?? NO_ENGINE_MESSAGE;
     writeRecord(deps, {
       call,
       reasons,
@@ -494,17 +493,27 @@ export function createEngine(
 ): DecisionEngine {
   if (options.engine) return options.engine;
 
-  const availability = describeJevAvailability(options.env ?? process.env, storedApiKey);
-  if (!availability.available || !availability.apiKey) return createManualEngine();
+  const availability = describeDecisionAvailability(options.env ?? process.env, storedApiKey);
+  if (!availability.available) {
+    return createManualEngine(availability.provider === "typesafe" ? NO_ENGINE_MESSAGE : `Decision engine unavailable: ${availability.reason}.`);
+  }
+
+  const transportOptions = {
+    timeoutMs: settings.timeoutMs,
+    maxRetries: settings.maxRetries,
+    ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+  };
+  const transport = availability.provider === "typesafe"
+    ? createSdkTransport({ ...transportOptions, apiKey: availability.apiKey })
+    : createHttpDecisionTransport({
+        ...transportOptions, provider: availability.provider,
+        endpoint: availability.endpoint, apiKey: availability.apiKey,
+      });
 
   return createJevEngine({
-    transport: createSdkTransport({
-      apiKey: availability.apiKey,
-      timeoutMs: settings.timeoutMs,
-      maxRetries: settings.maxRetries,
-      ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-    }),
-    model: availability.model,
+    transport,
+    id: availability.provider === "typesafe" ? "jev" : availability.provider,
+    ...(availability.provider === "strands" ? {} : { model: availability.model }),
     maxStateCharacters: settings.maxStateCharacters,
     thresholds: settings.thresholds,
     ...(options.onObservation === undefined ? {} : { onObservation: options.onObservation }),
@@ -536,13 +545,13 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
     record: options.record ?? createRecorder(pi),
     now,
   };
-  let availability: JevAvailability = describeJevAvailability(options.env ?? process.env);
+  let availability: DecisionAvailability = describeDecisionAvailability(options.env ?? process.env);
   let loaded = false;
 
   /** Rebuild the engine from the settings and the currently resolvable key. */
   const rebuildEngine = async (): Promise<void> => {
     const storedApiKey = await store.readStoredApiKey();
-    availability = describeJevAvailability(options.env ?? process.env, storedApiKey);
+    availability = describeDecisionAvailability(options.env ?? process.env, storedApiKey);
     deps = { ...deps, engine: createEngine(state.settings, engineOptions, storedApiKey) };
   };
 
@@ -557,9 +566,9 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
     }
     await rebuildEngine();
     loaded = true;
-    updateStatus(ctx, { enabled: state.settings.enabled, engineId: deps.engine.id, scope: state.scope });
+    updateStatus(ctx, { enabled: state.settings.enabled, engineId: deps.engine.id, scope: state.scope, provider: availability.provider });
     if (state.settings.enabled && deps.engine.id === MANUAL_ENGINE_ID) {
-      ctx.ui.notify(NO_ENGINE_MESSAGE, "warning");
+      ctx.ui.notify(deps.engine.unavailableReason ?? NO_ENGINE_MESSAGE, "warning");
     }
   };
 
@@ -597,7 +606,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
           if (!rule) return null;
           return [
             { value: `threshold ${rule.id}`, label: `current: ${rule.threshold}` },
-            { value: `threshold ${rule.id} reset`, label: "reset to the calibrated default" },
+            { value: `threshold ${rule.id} reset`, label: "reset to the default threshold" },
           ];
         }
       }
@@ -613,11 +622,13 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
           enabled: state.settings.enabled,
           engineId: deps.engine.id,
           scope: state.scope,
+          provider: availability.provider,
         }),
         "",
         describeSettings(state.settings, state.scope),
+        `provider: ${availability.provider} (JEV_AUTO_MODE_PROVIDER)`,
         availability.available
-          ? `semantic layer: ${availability.model} (key from ${describeKeySource(availability.source)})`
+          ? `semantic layer: ${availability.model} (${availability.source})`
           : `semantic layer: unavailable (${availability.reason ?? "unknown reason"})`,
       ].join("\n");
 
@@ -633,6 +644,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
           enabled: state.settings.enabled,
           engineId: deps.engine.id,
           scope: state.scope,
+          provider: availability.provider,
         });
         ctx.ui.notify(`Jev auto mode ${value === "on" ? "enabled" : "disabled"}.`, "info");
         return;
@@ -661,6 +673,11 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
         await store.savePolicyNotes("");
         state.policyNotes = "";
         ctx.ui.notify("Policy notes cleared.", "info");
+        return;
+      }
+
+      if ((value === "login" || value === "logout") && availability.provider !== "typesafe") {
+        ctx.ui.notify("Login/logout manages the TypeSafe key only. Configure the selected provider through its environment variables; see docs/providers.md.", "info");
         return;
       }
 
@@ -694,9 +711,10 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
           enabled: state.settings.enabled,
           engineId: deps.engine.id,
           scope: state.scope,
+          provider: availability.provider,
         });
         ctx.ui.notify(
-          `API key verified and stored at ${store.credentialPath()} (mode 600).\n\nSemantic layer: ${availability.model} (key from ${describeKeySource(availability.source)})`,
+          `API key verified and stored at ${store.credentialPath()} (mode 600).\n\nSemantic layer: ${availability.model} (${availability.source})`,
           "info",
         );
         return;
@@ -710,7 +728,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
         }
         const confirmed = await ctx.ui.confirm(
           "Remove the stored TypeSafe API key?",
-          availability.source === "env"
+          availability.source === "TYPESAFE_API_KEY"
             ? "It is not in use anyway: TYPESAFE_API_KEY takes precedence."
             : "Without a key the gate blocks every call it cannot vouch for, and says why.",
         );
@@ -725,7 +743,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
         });
         ctx.ui.notify(
           availability.available
-            ? `Stored key removed. Still using ${describeKeySource(availability.source)}.`
+            ? `Stored key removed. Still using ${availability.source}.`
             : "Stored key removed. The gate will block calls it cannot vouch for until a key is set again.",
           "info",
         );

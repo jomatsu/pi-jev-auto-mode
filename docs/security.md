@@ -16,11 +16,11 @@ This package splits those two responsibilities and keeps the envelope authoritat
 |---|---|
 | Approve a call the deterministic layer escalated | Approve a hard-deny command |
 | Refuse a call that looks required by the task | Override a user deny pattern |
-| Report "uncertain", which becomes a confirmation | Widen the set of protected paths |
+| Report "uncertain", resolved by the configured policy (default: allow) | Widen the set of protected paths |
 | Clear a `soft` hazard rejection when the user's own request covers the call | Clear a `hazard`-severity rejection (secret egress, credential stores, injection) |
 
 The order in `evaluateToolCall` is the enforcement: hard-deny and user rules return before the
-engine is constructed or called at all. There is no code path in which a probabilistic verdict
+engine is called at all. There is no code path in which a probabilistic verdict
 is consulted for a hard-deny target.
 
 ### The soft/hazard split, and why it is the riskiest part of the design
@@ -45,23 +45,25 @@ If a wrong approval ever appears in practice, this is the mechanism to remove fi
 
 ## Failure modes and what happens
 
-Everything below resolves to **block**. Silence is never consent.
+Unavailable decisions resolve to **block**, regardless of the uncertain-band policy.
+The table also distinguishes valid uncertain judgments from failures.
 
 | Failure | Resolution |
 |---|---|
-| No semantic engine configured (no API key) | confirm in a UI, block without one |
+| No semantic engine configured (no API key), invalid provider, or unsupported OpenAI adapter | block with an explanation; no provider fallback |
 | API key missing or rejected | block, with the reason surfaced to the model |
 | Login with a key the API refuses | the key is not stored, so a typo cannot become a permanently blocking gate |
 | Login while the API is unreachable | the key is not stored and the command says it could not verify |
-| Timeout / connection error | block (`timeout`, `network`) |
-| 5xx or 429 after retries | block (`http`) |
+| Remote timeout / connection error | block (`timeout`, `network`) |
+| Remote 5xx or 429 after retries | block (`http`) |
+| Strands completion unknown after dispatch, or HTTP 408/5xx | block (`strands_completion_unknown`); halt all later requests to that endpoint until the server and then Pi are restarted |
 | 4xx that retries cannot fix | block (`http`) — not rethrown, so the gate cannot fail open |
 | Response shape wrong, or a condition missing from the answer | block (`malformed_response`) |
 | State + questions over the shared budget | block (`state_too_large`) before the request is sent |
 | Engine throws | block (`engine_error`) |
 | Request cancelled (Esc) | block |
-| A middle-band judgment, with the default `uncertain: deny` | block (`uncertain`) |
-| A middle-band judgment with `uncertain: allow` | allow — an explicit choice to trust the band |
+| A valid middle-band judgment with `uncertain: deny` | block (`uncertain`) |
+| A valid middle-band judgment with the default `uncertain: allow` | allow — the existing policy since 0.4.1 |
 | No UI available for a confirmation when `uncertain: ask` | block (`no-ui`) |
 | A condition answered by fewer than all keys | block (`malformed_response`) — a missing answer is never an approval |
 
@@ -81,28 +83,33 @@ when it said `deny` or when no decision was available.
 - The gate never returns a Jev rationale verbatim as a system-level instruction; a block
   reason is a tool-call error string, which is the weakest channel it can use.
 
-## What is sent to TypeSafe
+## What is sent to the selected provider
 
-Judgment requires the content to leave the machine. The API is `api.typesafe.ai`, and the
-payload is deliberately narrow:
+Remote judgment sends content to `api.typesafe.ai` (default), `api.perplexity.ai`, or
+`api.cloudflare.com`, according to the explicit process environment selection.
+Strands sends it to the configured loopback HTTP server instead. Project settings cannot
+change the provider or endpoint. The payload is deliberately narrow:
 
 | Sent | Not sent |
 |---|---|
 | tool name, bash command text (truncated) | file contents, diffs, `write` bodies |
 | write/edit target path, cwd | tool output, assistant messages |
 | matched policy reason names | environment variables |
-| recent user messages (bounded, ≤4k chars) | the API key itself |
+| recent user messages (bounded) | the API key itself |
 | policy notes | |
 
-The API key is stored as a `0600` file under `<agentDir>/secrets/`, the same place Pi keeps its
+The TypeSafe API key is stored as a `0600` file under `<agentDir>/secrets/`, the same place Pi keeps its
 own credentials. It is never written to the settings file, and it is never part of the judgment
-state: it travels only in the `Authorization` header to `api.typesafe.ai`, so it cannot come
-back out through a decision record.
+state: it travels only in the `Authorization` header to TypeSafe. Perplexity and Cloudflare
+read their own environment key and send it only to their fixed API origin. The TypeSafe
+key is never reused for those providers; Strands receives no key. The new HTTP adapters
+reject redirects. OpenAI selection does not send anything.
 
-Redaction runs before the state is built: `*_KEY=` / `*_TOKEN=` / `*_SECRET=` assignments,
+Redaction runs on bash command text before the state is built: `*_KEY=` / `*_TOKEN=` / `*_SECRET=` assignments,
 `Bearer …`, JWTs, `sk-` / `rk-` keys, `ghp_` / `gho_` tokens, `AKIA…` access key IDs,
 `apikey_…` keys, and PEM private keys become `<redacted>` markers. Redaction is a safety net,
-not a guarantee — an unusual secret format will pass through. Lower
+not a guarantee — an unusual secret format will pass through. Recent user messages and
+policy notes are bounded but are not secret-filtered. Lower
 `maxStateCharacters`, or keep a command out of the gate by adding a deny/allow rule, if a
 repository must not produce outbound text at all.
 
@@ -119,6 +126,14 @@ context.
   escalated rather than recognized.
 - A command that `cd`s elsewhere and then deletes is judged by its text and intent, not by a
   simulated shell.
-- The probability thresholds are calibrated on one person's data, one sample per fixture,
+- The probability thresholds are calibrated on Jev using one person's data, one sample per fixture,
   with ±0.05 run-to-run variance. See [`calibration.md`](./calibration.md); treat the
-  thresholds as a starting point and tune them from the recorded probabilities.
+  thresholds as a starting point and tune them from the recorded probabilities. The same
+  values are preserved for the additional providers, but have not been calibrated there.
+- Strands is an unauthenticated experimental local server. Adapters within one Pi runtime
+  share a queue per loopback port; other processes and worker runtimes are not coordinated.
+  An interrupted HTTP request may leave inference running, so an indeterminate completion
+  stops the endpoint rather than releasing the queue for more requests or retries. Settings
+  changes and extension reloads cannot clear it. Recovery requires stopping the old server
+  and its workers, starting a fresh server, and then restarting Pi. Use a dedicated direct
+  instance and `--strict-window`; see [`providers.md`](./providers.md).

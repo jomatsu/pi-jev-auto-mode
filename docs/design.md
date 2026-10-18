@@ -46,7 +46,7 @@ tool_call(bash | write | edit)
          ├ any `hazard` condition rejected    → block
          ├ any `soft` condition rejected      → block, unless the user's own request covers it
          ├ any `required` condition unclear   → resolved by the `uncertain` setting
-         │                                      (default: block; `ask` prompts, `allow` passes)
+         │                                      (default: allow; `ask` prompts, `deny` blocks)
          └ unavailable                        → block (fail-closed)
   └─ 7. record the decision via appendEntry (never enters LLM context)
 ```
@@ -86,9 +86,9 @@ Composition happens in code, not in the model: one rejection from a `hazard`-sev
 blocks, a `soft` rejection is cleared by a satisfied `intent_coverage`, an unclear `required`
 condition is resolved by the `uncertain` setting, otherwise the call is approved.
 
-The default for that resolution is `deny`. Handing an unclear judgment to the user is what a
-non-auto mode does, and it makes the gate a source of interruptions; the agent can ask in
-conversation if it needs guidance. The `ask` path still exists, and when it is used the dialog
+The default for that resolution is `allow`, since 0.4.1. A valid middle-band judgment may
+pass; a missing or malformed decision always blocks. `deny` blocks the middle band too.
+The `ask` path still exists, and when it is used the dialog
 shows a bounded preview — Pi's dialogs do not clip their content, so an unbounded command
 produces a dialog taller than the terminal. One question, one judgment; no compound
 questions, and the model never has to weigh concerns against each other.
@@ -143,7 +143,7 @@ shipped to everyone.
 
 ## Tests
 
-182 tests, none of which need a network or an API key: the engine and transport are stubbed so
+The test suite needs neither a network nor an API key: the engine and transport are stubbed so
 every branch — allow, deny, cleared-by-intent, uncertain, each unavailable reason, boundary
 probabilities — is deterministic. The real API is exercised by two scripts that are not part of
 the published package:
@@ -151,6 +151,11 @@ the published package:
 - `scripts/calibrate.ts` sends the fixture set and prints every condition's probability.
 - `scripts/e2e.ts` runs the same fixtures through the real gate path (deterministic layer,
   real Jev, block/ask routing, records) and compares the decision against the expectation.
+
+The provider tests also exercise Perplexity, Cloudflare REST envelopes and local Strands
+through `evaluateToolCall`, including all three uncertain policies, unavailable providers,
+malformed answers, timeouts, cancellation, retries and the outbound data boundary.
+These are contract tests, not live inference or calibration. See [`providers.md`](./providers.md).
 
 ## Remaining work
 

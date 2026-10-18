@@ -1,14 +1,16 @@
 # pi-jev-auto-mode
 
 Auto mode for the [Pi coding agent](https://github.com/earendil-works/pi-mono) backed by
-**Jev** (TypeSafe System One, a decision-only model). Pi has no built-in permission system,
+**decision models**, with Jev (TypeSafe System One) as the default. Perplexity Decisions,
+Cloudflare Clef, and a local Strands Decider server are also supported; see
+[`docs/providers.md`](./docs/providers.md). Pi has no built-in permission system,
 so a gate either exists as an extension or it does not exist at all. This one judges
 `bash`, `write`, and `edit` tool calls semantically and **fails closed** whenever a decision
 cannot be made.
 
 > **Status: milestones 1–3 are complete.** The deterministic envelope, the Jev engine,
 > real-API calibration, settings, policy notes, per-rule threshold tuning, and decision
-> records are implemented and tested (171 tests, no network). See [`docs/design.md`](./docs/design.md) for
+> records are implemented and tested without network calls. See [`docs/design.md`](./docs/design.md) for
 > the roadmap and [`docs/calibration.md`](./docs/calibration.md) for the measured
 > probabilities behind every threshold.
 
@@ -59,7 +61,7 @@ Conditions are phrased so the safe state is "yes", and each one is classified by
 
 | | meaning |
 |---|---|
-| `mode: required` | must be satisfied; the middle band escalates to a confirmation |
+| `mode: required` | must be satisfied; the middle band follows the `uncertain` setting |
 | `mode: hazard` | only a clear negative matters; the middle band is ignored |
 | `severity: hazard` | a clear rejection always blocks |
 | `severity: soft` | a clear rejection is cleared when the user's own request covers the call |
@@ -69,11 +71,11 @@ questions like "is a secret being sent to a network endpoint" are hazard detecto
 block when they are sure. Posting a private key is never cleared by intent; force-pushing a
 feature branch the user asked for is.
 
-**Nothing is delegated to the user by default.** The middle band — where Jev is neither
-satisfied nor rejecting — resolves to a block, so Jev's probability is the whole answer and the
-gate never takes over the screen. `/jev-auto-mode uncertain ask` restores the confirmation
-dialog if you want it; `allow` trusts the band. Everything else that cannot be decided — no
-engine, timeout, malformed response, cancellation — also blocks.
+**Nothing is delegated to the user by default.** The middle band — where the model is neither
+satisfied nor rejecting — resolves to an approval (`uncertain: "allow"`, since 0.4.1).
+`/jev-auto-mode uncertain deny` blocks that band, and `ask` requests confirmation.
+A valid uncertain judgment is distinct from a missing decision: no engine, timeout,
+malformed response, HTTP failure, and cancellation always block, under all three settings.
 
 ## Install
 
@@ -99,17 +101,17 @@ Packages are discovered in the [package gallery](https://pi.dev/packages) throug
 ## Usage
 
 ```
-/jev-auto-mode            show status (settings + where the API key comes from)
+/jev-auto-mode            show status (settings, provider, model, where the credential comes from)
 /jev-auto-mode on|off     toggle auto mode
-/jev-auto-mode login      store a TypeSafe API key (verified, then saved 0600)
-/jev-auto-mode logout     remove the stored key
+/jev-auto-mode login      store a TypeSafe API key (verified, then saved 0600; TypeSafe only)
+/jev-auto-mode logout     remove the stored TypeSafe key
 /jev-auto-mode policy     list the policy notes
 /jev-auto-mode policy edit
 /jev-auto-mode policy clear
 /jev-auto-mode threshold                show thresholds and the last observed probability per rule
 /jev-auto-mode threshold <rule> <0.5-1> set one threshold
 /jev-auto-mode threshold edit            pick a rule and type a value
-/jev-auto-mode threshold reset [rule]   restore the calibrated default
+/jev-auto-mode threshold reset [rule]   restore the default threshold
 /jev-auto-mode uncertain                show what the middle band resolves to
 /jev-auto-mode uncertain deny|ask|allow
 /jev-auto-mode scope all|matched        how far the semantic layer reaches
@@ -125,7 +127,7 @@ the rationale. The expanded view shows every detail in either mode.
 pi --jev-auto-mode        start with auto mode enabled
 ```
 
-The semantic layer needs a [TypeSafe](https://typesafe.ai/) API key. Jev is early access, so an
+The default semantic layer needs a [TypeSafe](https://typesafe.ai/) API key. Jev is early access, so an
 account may be waitlisted; **the gate still works without one**. Its own rules keep running —
 read-only and user-declared safe commands pass, hard-deny shapes are blocked — but a call
 nothing vouches for is blocked with "Not connected to Jev" instead of being judged.
@@ -145,10 +147,46 @@ Without a key the gate does not disable itself and does not allow everything: it
 it cannot judge and says it is not connected to Jev. The footer shows `🛡 jev (<scope>)` while the
 semantic layer is active and `🛡 jev no key (<scope>)` when it is not.
 
+### Other decision providers
+
+To use another decision backend, set `JEV_AUTO_MODE_PROVIDER` explicitly before starting Pi.
+The default remains `typesafe`, even if other API keys are present. Provider selection is read
+from the process environment, never a project file, and a failed request never falls back to
+another provider.
+
+| `JEV_AUTO_MODE_PROVIDER` | Model (`JEV_AUTO_MODE_MODEL`) | Credentials / endpoint |
+|---|---|---|
+| `typesafe` (default) | `jev-latest` | `TYPESAFE_API_KEY` or `/jev-auto-mode login` |
+| `perplexity` | `pplx-decider-v1-27b` | `PERPLEXITY_API_KEY` |
+| `cloudflare` | `clef` or `clef-flash` | `CLOUDFLARE_AUTH_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
+| `strands` | chosen by the local server (leave unset) | `STRANDS_DECIDER_BASE_URL`, loopback only, default `http://127.0.0.1:8000` |
+| `openai` | — | **not implemented**: blocks escalated calls and sends no requests |
+
+```sh
+JEV_AUTO_MODE_PROVIDER=perplexity pi
+JEV_AUTO_MODE_PROVIDER=cloudflare JEV_AUTO_MODE_MODEL=clef-flash pi
+JEV_AUTO_MODE_PROVIDER=strands pi
+```
+
+The footer shows the active provider (`🛡 perplexity (<scope>)`), or `🛡 <provider> unavailable
+(<scope>)` plus a warning with the reason when its configuration is missing or invalid; the gate then blocks
+what it cannot judge, exactly as without a TypeSafe key. Remote providers retry network errors
+(including a connection lost while reading the response), 408, 429, and 5xx within the timeout
+budget. Strands is never retried: requests are serialized per loopback server, and if a
+dispatched request ends before its response is fully read, that endpoint is blocked for the rest
+of the Pi runtime (`strands_completion_unknown`). Recover by restarting the Strands server and
+then Pi.
+
+The thresholds were calibrated on Jev only. See
+[provider setup and compatibility limits](./docs/providers.md) for the wire contracts, the
+Strands recovery procedure, and validation limits. Login/logout manages the TypeSafe key only.
+
 ## Tuning
 
-The thresholds are a starting point measured on twelve fixtures, not a truth
-([`docs/calibration.md`](./docs/calibration.md)). To retune them from your own work:
+The thresholds are a starting point measured on twelve fixtures with Jev, not a truth
+([`docs/calibration.md`](./docs/calibration.md)). They have not been calibrated on the
+[additional providers](./docs/providers.md#local-strands-and-validation-limits).
+To retune them from your own work:
 
 1. Run the thing you care about. The gate records every judgment; expand the record in the
 transcript and read the per-condition table:
@@ -199,7 +237,7 @@ Policy notes: `$PI_CODING_AGENT_DIR/jev-auto-mode-policy.md`.
   "disallowedCommands": ["npm publish*"],
   "extraProtectedPaths": [],
   "maxStateCharacters": 120000,
-  "uncertain": "deny",
+  "uncertain": "allow",
   "gateScope": "all",
   "display": "compact",
   "thresholds": {}
@@ -225,15 +263,18 @@ Policy notes: `$PI_CODING_AGENT_DIR/jev-auto-mode-policy.md`.
 
 ## What leaves the machine
 
-An escalated call sends the following to TypeSafe's API (`api.typesafe.ai`):
+An escalated call sends the following to the selected provider: TypeSafe by default,
+Perplexity or Cloudflare when explicitly selected, or the loopback Strands server:
 
 - the tool name and the bash command text (truncated),
 - for `write` / `edit`: the target **path** — never the file contents or the diff,
 - the working directory, the matched policy reason names,
 - recent **user** messages (bounded), and your policy notes.
 
-Obvious credentials (`*_KEY=…`, `Bearer …`, JWTs, `sk-…`, `ghp_…`, PEM private keys) are
-redacted on the way out. Assistant output, tool output, and file contents are never sent.
+Obvious credentials in bash command text (`*_KEY=…`, `Bearer …`, JWTs, `sk-…`, `ghp_…`, PEM
+private keys) are redacted. Recent user messages and policy notes are bounded but are not
+secret-filtered, so they can contain sensitive text. Assistant output, tool output, and file
+contents are never sent.
 Details and the failure-mode table: [`docs/security.md`](./docs/security.md).
 
 ## Releasing
@@ -265,6 +306,8 @@ Layout:
 | `src/call.ts` | `tool_call` → judgment state (redaction, truncation, path classification) |
 | `src/intent.ts` | recent user-authored intent only |
 | `src/decide.ts` | the decision-engine seam (`DecisionEngine`) |
+| `src/providers.ts` | explicit provider selection, credentials, model and endpoint validation |
+| `src/decision-http.ts` | Perplexity, Cloudflare REST, and local Strands transport contracts |
 | `src/jev/questions.ts` | the condition set, modes, severities, thresholds |
 | `src/jev/availability.ts` | where the API key comes from (env or stored secret) |
 | `src/jev/decide.ts` | probability → condition verdict → decision |

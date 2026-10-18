@@ -69,6 +69,7 @@ export interface JudgeOptions {
 
 export interface DecisionEngine {
   readonly id: string;
+  readonly unavailableReason?: string;
   judge(input: CandidateInput, options: JudgeOptions): Promise<EngineVerdict>;
 }
 
@@ -78,9 +79,10 @@ export interface DecisionEngine {
  * The gate checks for this engine before judging: with no key there is nothing to
  * judge with, so it says so and blocks the call instead of inventing a verdict.
  */
-export function createManualEngine(): DecisionEngine {
+export function createManualEngine(unavailableReason?: string): DecisionEngine {
   return {
     id: "manual",
+    ...(unavailableReason === undefined ? {} : { unavailableReason }),
     judge: () => Promise.resolve({ verdict: "uncertain", rationale: "No semantic decision engine is configured." }),
   };
 }
