@@ -25,6 +25,7 @@ export interface ObservationMeta {
 
 export interface JevEngineOptions {
   readonly transport: JevTransport;
+  readonly id?: string;
   readonly rules?: readonly JevRule[];
   readonly model?: string;
   /** Per-rule threshold overrides from settings. */
@@ -43,12 +44,13 @@ export interface JevEngineOptions {
 export const DEFAULT_MAX_STATE_CHARACTERS = 120_000;
 
 const UNAVAILABLE_TEXT: Record<string, string> = {
-  timeout: "the Jev request timed out",
-  network: "the Jev request could not reach the API",
-  http: "the Jev API returned an error status",
-  malformed_response: "the Jev response did not match the questions that were asked",
+  timeout: "the decision request timed out",
+  network: "the decision request could not reach the API",
+  http: "the decision API returned an error status",
+  malformed_response: "the decision response did not match the questions that were asked",
   state_too_large: "the call description exceeded the request budget",
-  unknown: "the Jev request failed for an unknown reason",
+  strands_completion_unknown: "Strands inference may still be running after an interrupted request. Stop and restart the dedicated Strands server, then restart Pi before using this endpoint again; reloading settings does not clear this block",
+  unknown: "the decision request failed for an unknown reason",
 };
 
 export function createJevEngine(options: JevEngineOptions): DecisionEngine {
@@ -57,7 +59,7 @@ export function createJevEngine(options: JevEngineOptions): DecisionEngine {
   const now = options.now ?? (() => Date.now());
 
   return {
-    id: "jev",
+    id: options.id ?? "jev",
 
     async judge(input: CandidateInput, judgeOptions: JudgeOptions): Promise<EngineVerdict> {
       // The policy condition is skipped when no policy is configured: asking

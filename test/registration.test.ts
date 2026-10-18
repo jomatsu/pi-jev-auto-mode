@@ -103,7 +103,7 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-async function setup(options: { fetch?: (input: string, init?: RequestInit) => Promise<Response> } = {}) {
+async function setup(options: { fetch?: (input: string, init?: RequestInit) => Promise<Response>; env?: NodeJS.ProcessEnv } = {}) {
   const dir = await tempDir();
   const cwd = join(dir, "project");
   const store = new JevAutoModeStore({ agentDir: join(dir, "agent"), configDirName: ".pi" });
@@ -113,7 +113,7 @@ async function setup(options: { fetch?: (input: string, init?: RequestInit) => P
   register(harness.api, {
     store,
     now: () => 1,
-    env: {},
+    env: options.env ?? {},
     fetch:
       options.fetch ??
       (async () => {
@@ -136,6 +136,45 @@ describe("registration", () => {
     const { cwd, harness } = await setup();
     await harness.handlers.get("session_start")?.[0]?.({}, createContext(harness, cwd));
     assert.equal(harness.statuses.at(-1), "🛡 jev no key (global)");
+  });
+
+  it("reports the active provider without exposing its key", async () => {
+    const { cwd, harness } = await setup({ env: { JEV_AUTO_MODE_PROVIDER: "perplexity", PERPLEXITY_API_KEY: "private-test-key" } });
+    const ctx = createContext(harness, cwd);
+    await harness.handlers.get("session_start")?.[0]?.({}, ctx);
+    await harness.commands.get(AUTO_MODE_COMMAND)?.handler("status", ctx);
+    assert.equal(harness.statuses.at(-1), "🛡 perplexity (global)");
+    const message = harness.notifications.at(-1)?.message ?? "";
+    assert.match(message, /provider: perplexity/);
+    assert.match(message, /pplx-decider-v1-27b/);
+    assert.match(message, /PERPLEXITY_API_KEY/);
+    assert.doesNotMatch(message, /private-test-key/);
+  });
+
+  it("reports unavailable OpenAI honestly at startup and in status", async () => {
+    const { cwd, harness } = await setup({ env: { JEV_AUTO_MODE_PROVIDER: "openai", OPENAI_API_KEY: "private-test-key" } });
+    const ctx = createContext(harness, cwd);
+    await harness.handlers.get("session_start")?.[0]?.({}, ctx);
+    assert.match(harness.notifications.at(-1)?.message ?? "", /OpenAI Decisions.*not implemented/);
+    assert.equal(harness.statuses.at(-1), "🛡 openai unavailable (global)");
+    await harness.commands.get(AUTO_MODE_COMMAND)?.handler("status", ctx);
+    assert.match(harness.notifications.at(-1)?.message ?? "", /semantic layer: unavailable.*OpenAI Decisions/);
+  });
+
+  it("keeps login/logout from changing a TypeSafe key while another provider is selected", async () => {
+    let calls = 0;
+    const { cwd, store, harness } = await setup({ env: { JEV_AUTO_MODE_PROVIDER: "strands" }, fetch: async () => {
+      calls++;
+      return jsonResponse({ models: [{ name: "jev-latest" }] });
+    } });
+    await store.writeStoredApiKey("stored-typesafe-test-key");
+    harness.enteredKey = "replacement-test-key";
+    for (const action of ["login", "logout"]) {
+      await harness.commands.get(AUTO_MODE_COMMAND)?.handler(action, createContext(harness, cwd));
+      assert.match(harness.notifications.at(-1)?.message ?? "", /TypeSafe key only/);
+      assert.equal(await store.readStoredApiKey(), "stored-typesafe-test-key");
+    }
+    assert.equal(calls, 0);
   });
 });
 

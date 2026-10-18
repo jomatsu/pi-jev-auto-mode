@@ -16,12 +16,18 @@ export interface StatusInput {
   readonly enabled: boolean;
   readonly engineId: string;
   readonly scope: SettingsScope;
+  readonly provider?: string;
 }
 
 export function statusText(input: StatusInput): string {
   if (!input.enabled) return "🛡 jev off";
   const scope = input.scope === "project" ? "project" : "global";
-  return input.engineId === "manual" ? `🛡 jev no key (${scope})` : `🛡 jev (${scope})`;
+  if (input.engineId === "manual") {
+    return input.provider && input.provider !== "typesafe"
+      ? `🛡 ${input.provider} unavailable (${scope})`
+      : `🛡 jev no key (${scope})`;
+  }
+  return `🛡 ${input.engineId} (${scope})`;
 }
 
 export interface StatusContext {

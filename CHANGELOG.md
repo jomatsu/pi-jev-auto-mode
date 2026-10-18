@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- Add explicit decision backends for Perplexity Decisions, Cloudflare Clef/Clef-flash,
+  and a loopback Strands Decider server. TypeSafe remains the default; provider selection
+  is environment-only and credentials are never reused across providers.
+- Validate each REST contract, including Cloudflare's result envelope and finite `noul`
+  probabilities for every requested question. Errors remain blocked under every uncertain
+  policy. Bound retries, preserve cancellation, and serialize local Strands requests.
+  A connection lost while reading a remote response body is retried as a network error,
+  not reported as a malformed answer.
+- Share Strands exclusion across adapters and extension reloads in one Pi runtime. Never
+  retry local inference; if a dispatched request ends before completion is known, halt the
+  endpoint and block queued requests. Recovery requires restarting the dedicated server
+  and then Pi, so a client timeout cannot silently start overlapping server work.
+- Recognize `openai` as unavailable until its Decisions API contract is verified; no
+  speculative model ID, endpoint, or chat-model substitute is used.
+- Correct documentation to reflect the existing `uncertain: allow` default from 0.4.1.
+  Threshold values and permission policy are unchanged; new-provider calibration and live
+  inference remain unverified.
+
 ## 0.5.0 - 2026-09-24
 
 - **Decision records are compact by default.** An approval is drawn as one line — status, tool,
