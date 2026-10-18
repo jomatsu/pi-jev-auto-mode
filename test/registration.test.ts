@@ -151,14 +151,23 @@ describe("registration", () => {
     assert.doesNotMatch(message, /private-test-key/);
   });
 
-  it("reports unavailable OpenAI honestly at startup and in status", async () => {
+  it("reports OpenAI Decisions in the footer and status without its key", async () => {
     const { cwd, harness } = await setup({ env: { JEV_AUTO_MODE_PROVIDER: "openai", OPENAI_API_KEY: "private-test-key" } });
     const ctx = createContext(harness, cwd);
     await harness.handlers.get("session_start")?.[0]?.({}, ctx);
-    assert.match(harness.notifications.at(-1)?.message ?? "", /OpenAI Decisions.*not implemented/);
-    assert.equal(harness.statuses.at(-1), "🛡 openai unavailable (global)");
+    assert.equal(harness.statuses.at(-1), "🛡 openai (global)");
     await harness.commands.get(AUTO_MODE_COMMAND)?.handler("status", ctx);
-    assert.match(harness.notifications.at(-1)?.message ?? "", /semantic layer: unavailable.*OpenAI Decisions/);
+    const message = harness.notifications.at(-1)?.message ?? "";
+    assert.match(message, /semantic layer: gpt-6-luna \(OPENAI_API_KEY\)/);
+    assert.doesNotMatch(message, /private-test-key/);
+  });
+
+  it("reports OpenAI as unavailable without OPENAI_API_KEY", async () => {
+    const { cwd, harness } = await setup({ env: { JEV_AUTO_MODE_PROVIDER: "openai", TYPESAFE_API_KEY: "no-fallback" } });
+    const ctx = createContext(harness, cwd);
+    await harness.handlers.get("session_start")?.[0]?.({}, ctx);
+    assert.match(harness.notifications.at(-1)?.message ?? "", /OPENAI_API_KEY/);
+    assert.equal(harness.statuses.at(-1), "🛡 openai unavailable (global)");
   });
 
   it("keeps login/logout from changing a TypeSafe key while another provider is selected", async () => {
@@ -292,6 +301,84 @@ describe("command wiring", () => {
     await command.handler("logout", createContext(harness, cwd));
     assert.equal(await store.readStoredApiKey(), undefined);
     assert.equal(harness.statuses.at(-1), "🛡 jev no key (global)");
+  });
+
+  describe("model command", () => {
+    const models = {
+      models: [
+        { name: "jev-latest", description: "Newest release", release_date: "2026-10-01" },
+        { name: "jev-1.12.0", description: "", release_date: "2026-08-01" },
+        { name: "jev-1.13.0", description: "Current", release_date: "2026-10-01" },
+      ],
+    };
+
+    async function modelSetup(env: NodeJS.ProcessEnv = { TYPESAFE_API_KEY: "apikey_env" }, fetch?: () => Promise<Response>) {
+      const requests: string[] = [];
+      const context = await setup({
+        env,
+        fetch: fetch ?? (async (url) => { requests.push(String(url)); return jsonResponse(models); }),
+      });
+      const command = context.harness.commands.get(AUTO_MODE_COMMAND);
+      assert.ok(command);
+      const ctx = createContext(context.harness, context.cwd);
+      await context.harness.handlers.get("session_start")?.[0]?.({}, ctx);
+      return { ...context, command, ctx, requests };
+    }
+
+    it("defaults to jev-latest and lists the releases available to the key", async () => {
+      const { command, ctx, harness, store, cwd, requests } = await modelSetup();
+      assert.equal((await store.loadSettings(cwd, true)).settings.jevModel, undefined);
+      await command.handler("model", ctx);
+      const message = harness.notifications.at(-1)?.message ?? "";
+      assert.match(message, /jev model: jev-latest \(default\)/);
+      assert.match(message, /jev-1\.13\.0/);
+      assert.ok(message.indexOf("jev-1.13.0") < message.indexOf("jev-1.12.0"), "newest release first");
+      assert.ok(requests.every((url) => url.endsWith("/v1/models")));
+    });
+
+    it("pins a listed release, uses it for judgments, and returns to latest", async () => {
+      const { command, ctx, harness, store, cwd } = await modelSetup();
+      await command.handler("model jev-1.12.0", ctx);
+      assert.equal((await store.loadSettings(cwd, true)).settings.jevModel, "jev-1.12.0");
+      assert.match(harness.notifications.at(-1)?.message ?? "", /pinned to jev-1\.12\.0/);
+      await command.handler("status", ctx);
+      assert.match(harness.notifications.at(-1)?.message ?? "", /semantic layer: jev-1\.12\.0 \[model: jevModel setting\]/);
+
+      await command.handler("model latest", ctx);
+      assert.equal((await store.loadSettings(cwd, true)).settings.jevModel, undefined);
+      await command.handler("status", ctx);
+      assert.match(harness.notifications.at(-1)?.message ?? "", /semantic layer: jev-latest \[model: default\]/);
+    });
+
+    it("refuses an unlisted, malformed, or unverifiable release and saves nothing", async () => {
+      const { command, ctx, harness, store, cwd } = await modelSetup();
+      for (const [argument, pattern] of [["jev-9.9.9", /not available to this key/], ["jev latest", /Not a model name/]] as const) {
+        await command.handler(`model ${argument}`, ctx);
+        assert.equal(harness.notifications.at(-1)?.type, "error");
+        assert.match(harness.notifications.at(-1)?.message ?? "", pattern);
+      }
+      assert.equal((await store.loadSettings(cwd, true)).settings.jevModel, undefined);
+
+      const offline = await modelSetup(undefined, async () => { throw new TypeError("offline"); });
+      await offline.command.handler("model jev-1.12.0", offline.ctx);
+      assert.match(offline.harness.notifications.at(-1)?.message ?? "", /unreachable.*nothing was saved/);
+      assert.equal((await offline.store.loadSettings(offline.cwd, true)).settings.jevModel, undefined);
+
+      const noKey = await modelSetup({});
+      await noKey.command.handler("model jev-1.12.0", noKey.ctx);
+      assert.match(noKey.harness.notifications.at(-1)?.message ?? "", /Log in first/);
+    });
+
+    it("says an environment override wins and leaves other providers alone", async () => {
+      const pinnedByEnv = await modelSetup({ TYPESAFE_API_KEY: "apikey_env", TYPESAFE_DEFAULT_MODEL: "jev-1.13.0" });
+      await pinnedByEnv.command.handler("model jev-1.12.0", pinnedByEnv.ctx);
+      assert.match(pinnedByEnv.harness.notifications.at(-1)?.message ?? "", /TYPESAFE_DEFAULT_MODEL is set and takes precedence/);
+
+      const openai = await modelSetup({ JEV_AUTO_MODE_PROVIDER: "openai", OPENAI_API_KEY: "k" }, async () => { throw new Error("must not fetch"); });
+      await openai.command.handler("model jev-1.12.0", openai.ctx);
+      assert.match(openai.harness.notifications.at(-1)?.message ?? "", /applies to TypeSafe \(Jev\) only/);
+      assert.equal((await openai.store.loadSettings(openai.cwd, true)).settings.jevModel, undefined);
+    });
   });
 
   it("refuses a key the API rejects and stores nothing", async () => {

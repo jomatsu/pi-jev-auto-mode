@@ -12,16 +12,34 @@ redirect its endpoint. There is no fallback to another provider when a request f
 
 | Provider | Model | Configuration |
 |---|---|---|
-| `typesafe` (default) | `jev-latest` by default | Existing `TYPESAFE_API_KEY` or stored login key; `TYPESAFE_DEFAULT_MODEL` remains supported |
+| `typesafe` (default) | `jev-latest` by default; pin a release with `/jev-auto-mode model` | Existing `TYPESAFE_API_KEY` or stored login key; `TYPESAFE_DEFAULT_MODEL` remains supported |
 | `perplexity` | `pplx-decider-v1-27b` by default | `PERPLEXITY_API_KEY` |
 | `cloudflare` | `clef` by default; also `clef-flash` | `CLOUDFLARE_AUTH_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | `strands` | The checkpoint loaded by the local server | Optional `STRANDS_DECIDER_BASE_URL`; default `http://127.0.0.1:8000` |
-| `openai` | Not implemented | Selecting it reports unavailable and blocks escalated calls without sending requests |
+| `openai` | `gpt-6-luna` by default | `OPENAI_API_KEY` |
 
-`JEV_AUTO_MODE_MODEL` overrides the remote model. For TypeSafe it takes precedence over
-`TYPESAFE_DEFAULT_MODEL`; for Cloudflare it must be `clef` or `clef-flash`. Leave it unset
-for Strands: the server owns the checkpoint selection and reports its actual model name.
-No OpenAI model ID or endpoint is assumed.
+`JEV_AUTO_MODE_MODEL` overrides the remote model. For Cloudflare it must be `clef` or
+`clef-flash`. Leave it unset for Strands: the server owns the checkpoint selection and
+reports its actual model name. OpenAI currently documents `gpt-6-luna` as the only
+Decisions model; another value is sent as given and rejected by the API if unsupported.
+
+### Jev releases (TypeSafe)
+
+TypeSafe publishes several Jev releases. The default is `jev-latest`, which TypeSafe
+resolves to the newest one, so judgments follow new releases automatically. To keep a
+fixed release, pin it:
+
+```
+/jev-auto-mode model               # current model and the releases available to the key
+/jev-auto-mode model jev-1.13.0    # pin (saved as "jevModel" in the global settings)
+/jev-auto-mode model latest        # follow jev-latest again
+```
+
+A release is saved only after `GET /v1/models` lists it for the current key, so a typo
+cannot turn into a gate that blocks every escalated call. The model used for TypeSafe is
+the first of: `JEV_AUTO_MODE_MODEL`, `TYPESAFE_DEFAULT_MODEL`, the `jevModel` setting,
+`jev-latest`. `/jev-auto-mode status` shows which one applied. `jevModel` is ignored by
+the other providers.
 
 With the selected provider's credentials already configured:
 
@@ -29,6 +47,7 @@ With the selected provider's credentials already configured:
 JEV_AUTO_MODE_PROVIDER=perplexity pi
 JEV_AUTO_MODE_PROVIDER=cloudflare JEV_AUTO_MODE_MODEL=clef-flash pi
 JEV_AUTO_MODE_PROVIDER=strands STRANDS_DECIDER_BASE_URL=http://127.0.0.1:8000 pi
+JEV_AUTO_MODE_PROVIDER=openai pi
 ```
 
 `/jev-auto-mode status` shows the provider, model and credential source without displaying
@@ -38,8 +57,8 @@ provider is selected. This extension does not store additional provider credenti
 ## Wire compatibility
 
 The gate sends its existing `{ value, context }` state and named `noul` questions in one
-request. The new HTTP adapters require `type: "noul"` and a finite `noul` probability in `[0, 1]`
-for each answer. TypeSafe's existing SDK and response validation are unchanged.
+request. The Perplexity, Cloudflare and Strands adapters require `type: "noul"` and a finite
+`noul` probability in `[0, 1]` for each answer (OpenAI's predicate shape is described below). TypeSafe's existing SDK and response validation are unchanged.
 Every requested key must be present. There is no conversion from generated text, labels,
 or `choice`/`score` confidence. A separate `confidence` field is not required for `noul`.
 
@@ -54,10 +73,23 @@ or `choice`/`score` confidence. A separate `confidence` field is not required fo
   [REST envelope](https://developers.cloudflare.com/workers-ai/get-started/rest-api/).
 - **Strands:** `POST /v1/systemone` without credentials or a model selector. Only loopback
   HTTP origins are accepted (`127.0.0.1`, `localhost`, `[::1]`); `localhost` is resolved to
-  the numeric loopback. Redirects are disabled for all three HTTP adapters.
+  the numeric loopback.
   [Server schema](https://github.com/strands-labs/strands-decider/blob/main/src/strands_decider/schema.py).
+- **OpenAI:** `POST https://api.openai.com/v1/decisions` with Bearer auth and exactly
+  `model`, `input`, `questions`. OpenAI has no keyed `noul` questions, so each one becomes a
+  `predicate` question named after its key, in key order; its instructions and `criteria`
+  are folded into the predicate's `instructions` text ("True when: …", "False when: …").
+  `input` is the same `{ value, context }` state serialized as JSON text. The response's
+  `answers` array must have one entry per question, in the same order, echoing each name,
+  with `type: "predicate"` and a finite `probability` in `[0, 1]` — the predicate
+  probability is P(true), the same meaning as `noul`. A `refusal` for any question blocks
+  the call (`refused`); there is no conversion from `choice` or `score` answers. Maximum
+  200 questions. [Guide](https://developers.openai.com/api/docs/guides/decisions),
+  [API reference](https://developers.openai.com/api/reference/resources/decisions/methods/create).
 
-Perplexity and Cloudflare use the existing per-attempt timeout and retry limit for network
+Redirects are disabled for all HTTP adapters.
+
+Perplexity, Cloudflare and OpenAI use the existing per-attempt timeout and retry limit for network
 errors (including a connection lost while the response body is being read), 408, 429 and 5xx.
 Only a fully received body that is not valid JSON counts as a malformed answer. Other HTTP errors and malformed answers are not retried.
 `Retry-After` is honored when it fits the gate's timeout budget; a longer wait returns a
@@ -109,8 +141,7 @@ Evaluate each model on your own labeled operations before relying on its probabi
 
 The new adapters are tested with offline mocked contracts and the real deterministic gate.
 No live hosted API call, model download, or local Strands inference was used for validation.
-The [OpenAI announcement](https://openai.com/index/devday-2026-recap/) identifies Decisions
-API with Luna in limited preview, but a verified public request/response schema was not
-available during this implementation (2026-10-03). Its adapter remains unavailable until
-that contract can be implemented and tested. The `DecisionEngine` interface remains the
-extension point for a future adapter.
+The OpenAI adapter follows the public-beta Decisions API reference as published on
+2026-10-17; OpenAI expects the API to reach general availability soon, so recheck the
+contract if requests start failing validation. The `DecisionEngine` interface remains the
+extension point for further adapters.

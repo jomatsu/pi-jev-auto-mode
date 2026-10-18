@@ -2,11 +2,22 @@ import { describeJevAvailability, describeKeySource } from "./jev/availability.t
 
 export const DECISION_PROVIDERS = ["typesafe", "perplexity", "cloudflare", "strands", "openai"] as const;
 export type DecisionProvider = (typeof DECISION_PROVIDERS)[number];
-export type HttpDecisionProvider = "perplexity" | "cloudflare" | "strands";
+export type HttpDecisionProvider = "perplexity" | "cloudflare" | "strands" | "openai";
+
+/** The TypeSafe alias that always resolves to the newest Jev release. */
+export const JEV_LATEST_MODEL = "jev-latest";
+export const OPENAI_DECISIONS_MODEL = "gpt-6-luna";
 
 interface ProviderDescription {
   readonly model: string;
+  /** Where the model choice came from, for status output. */
+  readonly modelSource?: string;
   readonly source: string;
+}
+
+export interface DecisionAvailabilityOptions {
+  /** `jevModel` from settings: a pinned Jev release, or undefined for `jev-latest`. */
+  readonly jevModel?: string;
 }
 
 export type DecisionAvailability = ProviderDescription & (
@@ -28,6 +39,7 @@ function unavailable(provider: string, reason: string): DecisionAvailability {
 export function describeDecisionAvailability(
   env: NodeJS.ProcessEnv = process.env,
   storedTypeSafeKey?: string,
+  options: DecisionAvailabilityOptions = {},
 ): DecisionAvailability {
   const provider = env.JEV_AUTO_MODE_PROVIDER?.trim() || "typesafe";
   const model = env.JEV_AUTO_MODE_MODEL?.trim();
@@ -38,9 +50,17 @@ export function describeDecisionAvailability(
       if (!jev.available || !jev.apiKey) {
         return unavailable(provider, jev.reason ?? "no TypeSafe API key is available");
       }
+      const typesafeDefault = env.TYPESAFE_DEFAULT_MODEL?.trim();
+      const [selected, modelSource] = model
+        ? [model, "JEV_AUTO_MODE_MODEL"]
+        : typesafeDefault
+          ? [typesafeDefault, "TYPESAFE_DEFAULT_MODEL"]
+          : options.jevModel
+            ? [options.jevModel, "jevModel setting"]
+            : [JEV_LATEST_MODEL, "default"];
       return {
         available: true, provider, apiKey: jev.apiKey,
-        model: model || jev.model, source: describeKeySource(jev.source),
+        model: selected, modelSource, source: describeKeySource(jev.source),
       };
     }
     case "perplexity": {
@@ -79,8 +99,14 @@ export function describeDecisionAvailability(
       }
       return { available: true, provider, endpoint, model: "server checkpoint", source: "local server (no API key)" };
     }
-    case "openai":
-      return unavailable(provider, "OpenAI Decisions (Luna) is not implemented: a verified public request/response contract is required; no OpenAI request will be sent");
+    case "openai": {
+      const apiKey = env.OPENAI_API_KEY?.trim();
+      if (!apiKey) return unavailable(provider, "set OPENAI_API_KEY to use OpenAI Decisions");
+      return {
+        available: true, provider, apiKey, source: "OPENAI_API_KEY",
+        model: model || OPENAI_DECISIONS_MODEL, endpoint: "https://api.openai.com/v1/decisions",
+      };
+    }
     default:
       return unavailable("unknown", `JEV_AUTO_MODE_PROVIDER must be one of ${DECISION_PROVIDERS.join(", ")}`);
   }

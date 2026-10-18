@@ -19,6 +19,7 @@ import {
   CONFIG_DIR_NAME,
   getAgentDir,
   type ExtensionAPI,
+  type ExtensionCommandContext,
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { buildGatedCall, type GatedCall, type RepoFacts, type ToolCallEventLike } from "./call.ts";
@@ -28,12 +29,13 @@ import {
   createJevEngine,
   createSdkTransport,
   formatThreshold,
+  listJevModels,
   ruleById,
   verifyApiKey,
   type Observation,
   type ObservationMeta,
 } from "./jev/index.ts";
-import { describeDecisionAvailability, type DecisionAvailability } from "./providers.ts";
+import { describeDecisionAvailability, JEV_LATEST_MODEL, type DecisionAvailability } from "./providers.ts";
 import { createHttpDecisionTransport } from "./decision-http.ts";
 import { extractRecentIntent } from "./intent.ts";
 import {
@@ -56,6 +58,7 @@ import {
   JevAutoModeStore,
   isDisplayMode,
   isGateScope,
+  isJevModelName,
   isUncertainAction,
   parseThreshold,
   type JevAutoModeSettings,
@@ -66,6 +69,7 @@ import {
   describeSettings,
   DISPLAY_EXPLANATION,
   GATE_SCOPE_EXPLANATION,
+  MODEL_EXPLANATION,
   UNCERTAIN_EXPLANATION,
   formatRuleTable,
   POLICY_HEADER,
@@ -493,7 +497,7 @@ export function createEngine(
 ): DecisionEngine {
   if (options.engine) return options.engine;
 
-  const availability = describeDecisionAvailability(options.env ?? process.env, storedApiKey);
+  const availability = describeDecisionAvailability(options.env ?? process.env, storedApiKey, { jevModel: settings.jevModel });
   if (!availability.available) {
     return createManualEngine(availability.provider === "typesafe" ? NO_ENGINE_MESSAGE : `Decision engine unavailable: ${availability.reason}.`);
   }
@@ -545,13 +549,13 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
     record: options.record ?? createRecorder(pi),
     now,
   };
-  let availability: DecisionAvailability = describeDecisionAvailability(options.env ?? process.env);
+  let availability: DecisionAvailability = describeDecisionAvailability(options.env ?? process.env, undefined, { jevModel: state.settings.jevModel });
   let loaded = false;
 
   /** Rebuild the engine from the settings and the currently resolvable key. */
   const rebuildEngine = async (): Promise<void> => {
     const storedApiKey = await store.readStoredApiKey();
-    availability = describeDecisionAvailability(options.env ?? process.env, storedApiKey);
+    availability = describeDecisionAvailability(options.env ?? process.env, storedApiKey, { jevModel: state.settings.jevModel });
     deps = { ...deps, engine: createEngine(state.settings, engineOptions, storedApiKey) };
   };
 
@@ -584,13 +588,83 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
 
   registerDecisionEntryRenderer(pi, () => state.settings.display);
 
+  /** `/jev-auto-mode model [latest|<release>]`: pin a Jev release or follow jev-latest. */
+  const handleModelCommand = async (argument: string, ctx: ExtensionCommandContext, gateContext: GateContext): Promise<void> => {
+    if (availability.provider !== "typesafe") {
+      ctx.ui.notify(
+        `The model setting applies to TypeSafe (Jev) only. The ${availability.provider} model is set with JEV_AUTO_MODE_MODEL; see docs/providers.md.`,
+        "info",
+      );
+      return;
+    }
+    const override = (options.env ?? process.env).JEV_AUTO_MODE_MODEL?.trim()
+      ? "JEV_AUTO_MODE_MODEL"
+      : (options.env ?? process.env).TYPESAFE_DEFAULT_MODEL?.trim() ? "TYPESAFE_DEFAULT_MODEL" : undefined;
+    const overrideNote = override
+      ? `\n\n${override} is set and takes precedence until it is unset.`
+      : "";
+    const listModels = async () => availability.available && availability.provider === "typesafe"
+      ? await listJevModels({ apiKey: availability.apiKey, ...(options.fetch === undefined ? {} : { fetch: options.fetch }) })
+      : undefined;
+    const apply = async (jevModel: string | undefined, message: string): Promise<void> => {
+      const { jevModel: _previous, ...rest } = state.settings;
+      state.settings = jevModel === undefined ? rest : { ...rest, jevModel };
+      await save(gateContext);
+      await rebuildEngine();
+      updateStatus(gateContext, { enabled: state.settings.enabled, engineId: deps.engine.id, scope: state.scope, provider: availability.provider });
+      ctx.ui.notify(`${message}${overrideNote}`, "info");
+    };
+
+    if (argument === "") {
+      const current = availability.available
+        ? `jev model: ${availability.model} (${availability.modelSource ?? "default"})`
+        : `jev model: ${state.settings.jevModel ?? JEV_LATEST_MODEL} (${state.settings.jevModel ? "jevModel setting" : "default"}; no TypeSafe key yet)`;
+      const listed = await listModels();
+      const available = listed === undefined
+        ? "Available releases are listed after /jev-auto-mode login."
+        : listed.ok
+          ? ["Available releases (newest first):", ...listed.models.map((model) =>
+              `  ${model.name}${model.releaseDate ? `  ${model.releaseDate}` : ""}${model.description ? `  ${model.description}` : ""}`)].join("\n")
+          : `Could not list releases (${listed.reason === "invalid" ? "the API rejected the key" : "the API was unreachable"}).`;
+      ctx.ui.notify(`${current}\n\n${available}\n\n${MODEL_EXPLANATION}`, "info");
+      return;
+    }
+
+    if (argument === "latest" || argument === JEV_LATEST_MODEL) {
+      await apply(undefined, `Jev model now follows ${JEV_LATEST_MODEL}.`);
+      return;
+    }
+
+    if (!isJevModelName(argument)) {
+      ctx.ui.notify(`Not a model name: ${argument.slice(0, 80)}\n\n${MODEL_EXPLANATION}`, "error");
+      return;
+    }
+    // A typo saved as the model would block every escalated call, so the release must
+    // be one the API lists for this key before it is stored.
+    const listed = await listModels();
+    if (listed === undefined) {
+      ctx.ui.notify("Log in first (/jev-auto-mode login) so the release can be checked; nothing was saved.", "error");
+      return;
+    }
+    if (!listed.ok) {
+      ctx.ui.notify(`Could not check ${argument} (${listed.reason === "invalid" ? "the API rejected the key" : "the API was unreachable"}); nothing was saved.`, "error");
+      return;
+    }
+    if (!listed.models.some((model) => model.name === argument)) {
+      const names = listed.models.map((model) => model.name).join(", ") || "none";
+      ctx.ui.notify(`${argument} is not available to this key; nothing was saved. Available: ${names}`, "error");
+      return;
+    }
+    await apply(argument, `Jev model pinned to ${argument}.`);
+  };
+
   pi.registerCommand(AUTO_MODE_COMMAND, {
     description: "Show or change the Jev auto mode settings",
     getArgumentCompletions: (argumentPrefix) => {
       const value = String(argumentPrefix ?? "");
       const tokens = value.split(/\s+/).filter(Boolean);
       if (tokens.length === 0) {
-        return ["status", "on", "off", "policy", "threshold", "scope", "uncertain", "display", "login", "logout"].map((item) => ({
+        return ["status", "on", "off", "policy", "threshold", "scope", "uncertain", "display", "model", "login", "logout"].map((item) => ({
           value: item,
           label: item,
         }));
@@ -628,7 +702,7 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
         describeSettings(state.settings, state.scope),
         `provider: ${availability.provider} (JEV_AUTO_MODE_PROVIDER)`,
         availability.available
-          ? `semantic layer: ${availability.model} (${availability.source})`
+          ? `semantic layer: ${availability.model}${availability.modelSource ? ` [model: ${availability.modelSource}]` : ""} (${availability.source})`
           : `semantic layer: unavailable (${availability.reason ?? "unknown reason"})`,
       ].join("\n");
 
@@ -790,6 +864,11 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
         state.settings = { ...state.settings, display: argument };
         await save(gateContext);
         ctx.ui.notify(`decision records now display as: ${argument}`, "info");
+        return;
+      }
+
+      if (value === "model" || value.startsWith("model ")) {
+        await handleModelCommand(value.slice("model".length).trim(), ctx, gateContext);
         return;
       }
 

@@ -58,12 +58,30 @@ export type ApiKeyVerification =
  * stored when the API accepted it; a network failure is reported as "try again",
  * never as "saved".
  */
-export async function verifyApiKey(options: {
+export async function verifyApiKey(options: JevApiOptions): Promise<ApiKeyVerification> {
+  const listed = await listJevModels(options);
+  return listed.ok ? { ok: true } : listed;
+}
+
+export interface JevApiOptions {
   readonly apiKey: string;
   readonly baseURL?: string;
   readonly fetch?: (input: string, init?: RequestInit) => Promise<Response>;
   readonly timeoutMs?: number;
-}): Promise<ApiKeyVerification> {
+}
+
+export interface JevModelCard {
+  readonly name: string;
+  readonly description: string;
+  readonly releaseDate: string;
+}
+
+export type JevModelList =
+  | { readonly ok: true; readonly models: readonly JevModelCard[] }
+  | { readonly ok: false; readonly reason: "invalid" | "unreachable" };
+
+/** The Jev releases this account can use (`GET /v1/models`), newest release first. */
+export async function listJevModels(options: JevApiOptions): Promise<JevModelList> {
   const client = new TypeSafeClient({
     apiKey: options.apiKey,
     ...(options.baseURL === undefined ? {} : { baseURL: options.baseURL }),
@@ -73,8 +91,17 @@ export async function verifyApiKey(options: {
   });
 
   try {
-    await client.models.list();
-    return { ok: true };
+    const cards: unknown = await client.models.list();
+    if (!Array.isArray(cards)) return { ok: false, reason: "unreachable" };
+    const models = cards
+      .filter((card): card is Record<string, unknown> => typeof card === "object" && card !== null && typeof card.name === "string")
+      .map((card) => ({
+        name: String(card.name),
+        description: typeof card.description === "string" ? card.description : "",
+        releaseDate: typeof card.release_date === "string" ? card.release_date : "",
+      }))
+      .sort((a, b) => b.releaseDate.localeCompare(a.releaseDate));
+    return { ok: true, models };
   } catch (error) {
     if (error instanceof APIError) {
       // 401 / 403 mean the key itself was refused; anything else is the API failing

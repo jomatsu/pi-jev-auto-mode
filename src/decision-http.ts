@@ -1,6 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { parseAnswers } from "./jev/response.ts";
-import type { JevRequest, JevTransport, JevTransportResult } from "./jev/types.ts";
+import type { JevEntry, JevNoulQuestion, JevRequest, JevTransport, JevTransportResult } from "./jev/types.ts";
 import type { HttpDecisionProvider } from "./providers.ts";
 
 export interface HttpDecisionOptions {
@@ -41,8 +41,85 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const QUESTION_LIMITS: Record<HttpDecisionProvider, number> = {
+  perplexity: 128,
+  cloudflare: 64,
+  openai: 200,
+  strands: Infinity,
+};
+
+function entryText(entry: JevEntry | undefined): string {
+  if (entry === undefined || entry === null) return "";
+  return typeof entry === "string" ? entry : JSON.stringify(entry);
+}
+
+/**
+ * OpenAI predicates take one instruction string, so the noul criteria are folded into it.
+ * A predicate's probability is "the condition is true", which is noul's P(true).
+ */
+function predicateInstructions(question: JevNoulQuestion): string {
+  const parts = [entryText(question.instructions)];
+  const whenTrue = entryText(question.criteria?.true);
+  const whenFalse = entryText(question.criteria?.false);
+  if (whenTrue) parts.push(`True when: ${whenTrue}`);
+  if (whenFalse) parts.push(`False when: ${whenFalse}`);
+  return parts.filter((part) => part.length > 0).join("\n");
+}
+
+function requestBody(request: JevRequest, provider: HttpDecisionProvider, keys: string[]): string {
+  if (provider === "openai") {
+    return JSON.stringify({
+      model: request.model,
+      input: JSON.stringify(request.state),
+      questions: keys.map((name) => ({ type: "predicate", name, instructions: predicateInstructions(request.questions[name]!) })),
+    });
+  }
+  return JSON.stringify({
+    state: request.state,
+    questions: request.questions,
+    ...(provider === "strands" || request.model === undefined ? {} : { model: request.model }),
+  });
+}
+
+/**
+ * OpenAI answers are an array in question order. Every answer must echo its question's
+ * name at its own position and carry a finite predicate probability; a refusal is not a
+ * judgment. The result is rewritten into the keyed noul shape the engine validates.
+ */
+function normalizeOpenAiResponse(body: unknown, keys: string[]): JevTransportResult {
+  if (!isRecord(body) || !Array.isArray(body.answers) || body.answers.length !== keys.length) {
+    return { ok: false, reason: "malformed_response" };
+  }
+  const answers: Record<string, { type: "noul"; noul: number }> = {};
+  let refused = false;
+  for (const [index, key] of keys.entries()) {
+    const answer: unknown = body.answers[index];
+    if (!isRecord(answer) || answer.name !== key) return { ok: false, reason: "malformed_response" };
+    if (answer.type === "refusal") {
+      refused = true;
+      continue;
+    }
+    const probability = answer.probability;
+    if (answer.type !== "predicate" || typeof probability !== "number" || !Number.isFinite(probability)
+      || probability < 0 || probability > 1) {
+      return { ok: false, reason: "malformed_response" };
+    }
+    answers[key] = { type: "noul", noul: probability };
+  }
+  if (refused) return { ok: false, reason: "refused" };
+  const usage = isRecord(body.usage) ? body.usage : {};
+  const response = {
+    model: typeof body.model === "string" ? body.model : "unknown",
+    answers,
+    usage: { input_tokens: usage.input_tokens, output_tokens: usage.output_tokens ?? 0 },
+  };
+  if (!parseAnswers(response, keys).ok) return { ok: false, reason: "malformed_response" };
+  return { ok: true, response };
+}
+
 /** Only noul answers are used; choice/score confidence is not P(true). */
 function normalizeResponse(body: unknown, provider: HttpDecisionProvider, keys: string[]): JevTransportResult {
+  if (provider === "openai") return normalizeOpenAiResponse(body, keys);
   let response = body;
   if (provider === "cloudflare") {
     if (!isRecord(body) || body.success !== true || !Array.isArray(body.errors) || body.errors.length !== 0) {
@@ -101,7 +178,7 @@ function strandsResult(result: Promise<JevTransportResult>, halted: AbortSignal)
   });
 }
 
-/** REST adapters share retry/cancellation handling, not provider response assumptions. */
+/** REST adapters share retry/cancellation handling, not provider request or response shapes. */
 export function createHttpDecisionTransport(options: HttpDecisionOptions): JevTransport {
   const fetcher = options.fetch ?? fetch;
   const strands = options.provider === "strands" ? strandsServer(options.endpoint) : undefined;
@@ -110,13 +187,8 @@ export function createHttpDecisionTransport(options: HttpDecisionOptions): JevTr
     throwIfCancelled(request.signal);
     if (strands?.halted.signal.aborted) return STRANDS_HALTED;
     const keys = Object.keys(request.questions);
-    const limit = options.provider === "cloudflare" ? 64 : options.provider === "perplexity" ? 128 : Infinity;
-    if (keys.length === 0 || keys.length > limit) return { ok: false, reason: "state_too_large" };
-    const body = JSON.stringify({
-      state: request.state,
-      questions: request.questions,
-      ...(options.provider === "strands" || request.model === undefined ? {} : { model: request.model }),
-    });
+    if (keys.length === 0 || keys.length > QUESTION_LIMITS[options.provider]) return { ok: false, reason: "state_too_large" };
+    const body = requestBody(request, options.provider, keys);
 
     for (let attempt = 0; ; attempt++) {
       throwIfCancelled(request.signal);

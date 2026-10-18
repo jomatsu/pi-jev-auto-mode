@@ -48,6 +48,7 @@ const UNAVAILABLE_TEXT: Record<string, string> = {
   network: "the decision request could not reach the API",
   http: "the decision API returned an error status",
   malformed_response: "the decision response did not match the questions that were asked",
+  refused: "the decision model refused to answer at least one question",
   state_too_large: "the call description exceeded the request budget",
   strands_completion_unknown: "Strands inference may still be running after an interrupted request. Stop and restart the dedicated Strands server, then restart Pi before using this endpoint again; reloading settings does not clear this block",
   unknown: "the decision request failed for an unknown reason",

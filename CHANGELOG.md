@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Add explicit decision backends for Perplexity Decisions, Cloudflare Clef/Clef-flash,
-  and a loopback Strands Decider server. TypeSafe remains the default; provider selection
+  OpenAI Decisions (`gpt-6-luna`), and a loopback Strands Decider server. TypeSafe remains the default; provider selection
   is environment-only and credentials are never reused across providers.
 - Validate each REST contract, including Cloudflare's result envelope and finite `noul`
   probabilities for every requested question. Errors remain blocked under every uncertain
@@ -14,8 +14,13 @@
   retry local inference; if a dispatched request ends before completion is known, halt the
   endpoint and block queued requests. Recovery requires restarting the dedicated server
   and then Pi, so a client timeout cannot silently start overlapping server work.
-- Recognize `openai` as unavailable until its Decisions API contract is verified; no
-  speculative model ID, endpoint, or chat-model substitute is used.
+- OpenAI Decisions: each `noul` question is sent as a named `predicate` with its criteria
+  folded into the instructions; answers must come back in question order with a finite
+  probability, and a refusal blocks the call. `OPENAI_API_KEY` only; no fallback.
+- **Pin a Jev release.** `/jev-auto-mode model` lists the releases available to the TypeSafe
+  key; `model <release>` saves it as `jevModel` (only after the API lists it) and
+  `model latest` returns to the default `jev-latest`. `JEV_AUTO_MODE_MODEL` and
+  `TYPESAFE_DEFAULT_MODEL` still take precedence, and status shows which applied.
 - Correct documentation to reflect the existing `uncertain: allow` default from 0.4.1.
   Threshold values and permission policy are unchanged; new-provider calibration and live
   inference remain unverified.

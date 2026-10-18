@@ -15,12 +15,14 @@ const providers = [
     endpoint: `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/cloudflare/clef`, requestModel: "clef", responseModel: "clef", key: "cloudflare-test-key" },
   { provider: "strands", env: { JEV_AUTO_MODE_PROVIDER: "strands" },
     endpoint: "http://127.0.0.1:8000/v1/systemone", requestModel: undefined, responseModel: "strands-decider-2B-hobson-v19", key: undefined },
+  { provider: "openai", env: { JEV_AUTO_MODE_PROVIDER: "openai", OPENAI_API_KEY: "openai-test-key" },
+    endpoint: "https://api.openai.com/v1/decisions", requestModel: "gpt-6-luna", responseModel: "gpt-6-luna", key: "openai-test-key" },
 ] as const;
 
 describe("provider selection", () => {
   it("keeps TypeSafe as the default, including env/stored key precedence and model selection", () => {
     const stored = describeDecisionAvailability({}, "stored-test-key");
-    assert.deepEqual(stored, { available: true, provider: "typesafe", apiKey: "stored-test-key", model: "jev-latest", source: "stored secret (/jev-auto-mode login)" });
+    assert.deepEqual(stored, { available: true, provider: "typesafe", apiKey: "stored-test-key", model: "jev-latest", modelSource: "default", source: "stored secret (/jev-auto-mode login)" });
     const env = describeDecisionAvailability({ TYPESAFE_API_KEY: "env-test-key", TYPESAFE_DEFAULT_MODEL: "jev-test-version" }, "stored-test-key");
     assert.equal(env.available && env.apiKey, "env-test-key");
     assert.equal(env.model, "jev-test-version");
@@ -30,13 +32,39 @@ describe("provider selection", () => {
     assert.equal(DEFAULT_SETTINGS.uncertain, "allow");
   });
 
+  it("follows jev-latest by default and lets a pinned release be overridden by the environment", () => {
+    const key = { TYPESAFE_API_KEY: "k" };
+    const pinned = { jevModel: "jev-1.13.0" };
+    assert.equal(DEFAULT_SETTINGS.jevModel, undefined);
+    assert.equal(describeDecisionAvailability(key, undefined, {}).model, "jev-latest");
+    const fromSetting = describeDecisionAvailability(key, undefined, pinned);
+    assert.equal(fromSetting.model, "jev-1.13.0");
+    assert.equal(fromSetting.modelSource, "jevModel setting");
+    const fromTypeSafeDefault = describeDecisionAvailability({ ...key, TYPESAFE_DEFAULT_MODEL: "jev-1.12.0" }, undefined, pinned);
+    assert.deepEqual([fromTypeSafeDefault.model, fromTypeSafeDefault.modelSource], ["jev-1.12.0", "TYPESAFE_DEFAULT_MODEL"]);
+    const explicit = describeDecisionAvailability({ ...key, TYPESAFE_DEFAULT_MODEL: "jev-1.12.0", JEV_AUTO_MODE_MODEL: "jev-1.11.0" }, undefined, pinned);
+    assert.deepEqual([explicit.model, explicit.modelSource], ["jev-1.11.0", "JEV_AUTO_MODE_MODEL"]);
+    // The Jev pin never leaks into another provider's model.
+    assert.equal(describeDecisionAvailability({ JEV_AUTO_MODE_PROVIDER: "openai", OPENAI_API_KEY: "k" }, undefined, pinned).model, "gpt-6-luna");
+  });
+
+  it("accepts only well-formed jevModel values from settings files", () => {
+    assert.deepEqual(parseSettingsPatch({ jevModel: "jev-1.13.0" }), { jevModel: "jev-1.13.0" });
+    for (const jevModel of ["", " jev", "jev latest", "../jev", 42, null, "x".repeat(129)]) {
+      assert.deepEqual(parseSettingsPatch({ jevModel }), {});
+    }
+  });
+
   it("does not read provider, endpoint, or credentials from project settings", () => {
     assert.deepEqual(parseSettingsPatch({ provider: "strands", endpoint: "http://untrusted", apiKey: "not-a-setting", JEV_AUTO_MODE_PROVIDER: "strands" }), {});
   });
 
   for (const fixture of providers) {
     it(`resolves only ${fixture.provider}'s credentials and endpoint`, () => {
-      const availability = describeDecisionAvailability({ ...fixture.env, TYPESAFE_API_KEY: "typesafe-only", OPENAI_API_KEY: "openai-only" }, "stored-typesafe");
+      const availability = describeDecisionAvailability({
+        TYPESAFE_API_KEY: "typesafe-only", OPENAI_API_KEY: "openai-only", PERPLEXITY_API_KEY: "perplexity-only",
+        CLOUDFLARE_AUTH_TOKEN: "cloudflare-only", CLOUDFLARE_ACCOUNT_ID: accountId, ...fixture.env,
+      }, "stored-typesafe");
       assert.equal(availability.available, true);
       assert.ok(availability.available && availability.provider !== "typesafe");
       assert.equal(availability.endpoint, fixture.endpoint);
@@ -59,7 +87,7 @@ describe("provider selection", () => {
       { ...cloudflareEnv, JEV_AUTO_MODE_MODEL: "llama" },
       { JEV_AUTO_MODE_PROVIDER: "strands", JEV_AUTO_MODE_MODEL: "jev-latest" },
       { JEV_AUTO_MODE_PROVIDER: "typo" },
-      { JEV_AUTO_MODE_PROVIDER: "openai", OPENAI_API_KEY: "must-not-use" },
+      { JEV_AUTO_MODE_PROVIDER: "openai" },
     ]) {
       const availability = describeDecisionAvailability({ TYPESAFE_API_KEY: "must-not-fallback", ...env }, "stored-typesafe");
       assert.equal(availability.available, false);
@@ -128,12 +156,19 @@ for (const fixture of providers) {
           const body = JSON.parse(String(init?.body));
           assert.equal(body.model, fixture.requestModel);
           requests.push(body);
-          const result = {
-            model: fixture.responseModel,
-            answers: Object.fromEntries(Object.keys(body.questions).map((key) => [key, { type: "noul", noul: options.probability ?? 0.99 }])),
-            usage: { input_tokens: 100, output_tokens: 5 },
-          };
-          const response = options.malformed ? { ...result, answers: {} } : result;
+          const probability = options.probability ?? 0.99;
+          const result = fixture.provider === "openai"
+            ? {
+                model: fixture.responseModel,
+                answers: body.questions.map((question: { name: string }) => ({ type: "predicate", name: question.name, probability })),
+                usage: { input_tokens: 100 },
+              }
+            : {
+                model: fixture.responseModel,
+                answers: Object.fromEntries(Object.keys(body.questions).map((key) => [key, { type: "noul", noul: probability }])),
+                usage: { input_tokens: 100, output_tokens: 5 },
+              };
+          const response = options.malformed ? { ...result, answers: fixture.provider === "openai" ? [] : {} } : result;
           return new Response(JSON.stringify(fixture.provider === "cloudflare" ? { success: true, errors: [], result: response } : response), { status: options.status ?? 200 });
         },
       }, "must-not-use-stored-typesafe");
@@ -161,7 +196,8 @@ for (const fixture of providers) {
       const serialized = JSON.stringify(requests[0]);
       assert.match(serialized, /redacted/);
       assert.doesNotMatch(serialized, /abcdefghijklmnop|DO_NOT_SEND_ASSISTANT|DO_NOT_SEND_TOOL_RESULT/);
-      assert.deepEqual(Object.keys(requests[0]!).sort(), fixture.provider === "strands" ? ["questions", "state"] : ["model", "questions", "state"]);
+      assert.deepEqual(Object.keys(requests[0]!).sort(),
+        fixture.provider === "strands" ? ["questions", "state"] : fixture.provider === "openai" ? ["input", "model", "questions"] : ["model", "questions", "state"]);
       assert.equal(records[0]?.source, "engine");
       assert.equal(records[0]?.model, fixture.responseModel);
       assert.ok(records[0]?.conditions?.every((condition) => condition.probability === 0.99));
@@ -269,21 +305,72 @@ describe("Strands interrupted inference through the real gate", () => {
   }
 });
 
-describe("unavailable providers", () => {
+describe("missing provider configuration", () => {
   for (const uncertain of ["allow", "deny", "ask"] as const) {
-    it(`blocks OpenAI before any HTTP call with uncertain=${uncertain}`, async () => {
+    it(`blocks OpenAI without OPENAI_API_KEY before any HTTP call and without TypeSafe fallback, uncertain=${uncertain}`, async () => {
       let calls = 0;
       const records: DecisionRecord[] = [];
-      const engine = createEngine(DEFAULT_SETTINGS, { env: { JEV_AUTO_MODE_PROVIDER: "openai", OPENAI_API_KEY: "test", TYPESAFE_API_KEY: "no-fallback" },
+      const engine = createEngine(DEFAULT_SETTINGS, { env: { JEV_AUTO_MODE_PROVIDER: "openai", TYPESAFE_API_KEY: "no-fallback" },
         fetch: async () => { calls++; throw new Error("must not fetch"); } });
       const { ctx, prompts } = context({ answer: "Yes" });
       const result = await evaluateToolCall({ toolName: "bash", input: { command: "npm publish" } }, ctx,
         { settings: { ...DEFAULT_SETTINGS, uncertain }, policyNotes: "", scope: "global" },
         { engine, record: (record) => records.push(record), now: () => 1 });
       assert.equal(result?.block, true);
-      assert.match(result.reason, /OpenAI Decisions.*not implemented/);
+      assert.match(result.reason, /OPENAI_API_KEY/);
       assert.equal(records[0]?.source, "unavailable");
       assert.equal(calls, 0);
+      assert.equal(prompts(), 0);
+    });
+  }
+});
+
+describe("Jev release selection through the real gate", () => {
+  for (const [jevModel, expected] of [[undefined, "jev-latest"], ["jev-1.12.0", "jev-1.12.0"]] as const) {
+    it(`sends ${expected} to TypeSafe when jevModel is ${jevModel ?? "unset"}`, async () => {
+      const sent: Array<{ url: string; model: unknown }> = [];
+      const settings = { ...DEFAULT_SETTINGS, maxRetries: 0, ...(jevModel === undefined ? {} : { jevModel }) };
+      const engine = createEngine(settings, {
+        env: { TYPESAFE_API_KEY: "typesafe-test-key" },
+        fetch: async (url, init) => {
+          const body = JSON.parse(String(init?.body));
+          sent.push({ url: String(url), model: body.model });
+          const answers = Object.fromEntries(Object.keys(body.questions).map((key) => [key, { type: "noul", noul: 0.99 }]));
+          return new Response(JSON.stringify({ model: body.model, answers, usage: { input_tokens: 1, output_tokens: 1 } }),
+            { headers: { "content-type": "application/json" } });
+        },
+      });
+      const records: DecisionRecord[] = [];
+      const result = await evaluateToolCall({ toolName: "bash", input: { command: "npm publish" } }, context().ctx,
+        { settings, policyNotes: "", scope: "global" }, { engine, record: (record) => records.push(record), now: () => 1 });
+      assert.equal(result, undefined);
+      assert.deepEqual(sent.map((request) => request.model), [expected]);
+      assert.match(sent[0]!.url, /\/v1\/systemone$/);
+      assert.equal(records[0]?.model, expected);
+    });
+  }
+});
+
+describe("OpenAI refusals through the real gate", () => {
+  for (const uncertain of ["allow", "deny", "ask"] as const) {
+    it(`blocks a refused question with uncertain=${uncertain}`, async () => {
+      const records: DecisionRecord[] = [];
+      const settings = { ...DEFAULT_SETTINGS, maxRetries: 0, uncertain };
+      const engine = createEngine(settings, {
+        env: { JEV_AUTO_MODE_PROVIDER: "openai", OPENAI_API_KEY: "openai-test-key" },
+        fetch: async (_url, init) => {
+          const body = JSON.parse(String(init?.body));
+          const answers = body.questions.map((question: { name: string }, index: number) =>
+            index === 0 ? { type: "refusal", name: question.name } : { type: "predicate", name: question.name, probability: 0.99 });
+          return new Response(JSON.stringify({ model: "gpt-6-luna", answers, usage: { input_tokens: 1 } }));
+        },
+      });
+      const { ctx, prompts } = context({ answer: "Yes" });
+      const result = await evaluateToolCall({ toolName: "bash", input: { command: "npm publish" } }, ctx,
+        { settings, policyNotes: "", scope: "global" }, { engine, record: (record) => records.push(record), now: () => 1 });
+      assert.equal(result?.block, true);
+      assert.equal(records[0]?.source, "unavailable");
+      assert.match(records[0]?.rationale ?? "", /refused/);
       assert.equal(prompts(), 0);
     });
   }
