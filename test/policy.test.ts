@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import {
+  allowedPathReason,
   classifyWriteTarget,
   dangerousReasons,
   isReadOnlyCommand,
@@ -170,6 +171,14 @@ describe("protected paths", () => {
     assert.equal(protectedPathReason("/Users/dev/project/AGENTS.md"), "protected file `AGENTS.md`");
   });
 
+  it("recognizes exact configured allowed paths", () => {
+    assert.equal(
+      allowedPathReason("/Users/dev/project/.pi/agent/models.json", ["/Users/dev/project/.pi/agent/models.json"]),
+      "configured allowed path `/Users/dev/project/.pi/agent/models.json`",
+    );
+    assert.equal(allowedPathReason("/Users/dev/project/.pi/agent/settings.json", ["models.json"]), undefined);
+  });
+
   it("leaves ordinary source files alone", () => {
     assert.equal(protectedPathReason("/Users/dev/project/src/index.ts"), undefined);
   });
@@ -215,5 +224,13 @@ describe("write targets", () => {
   it("flags protected paths even inside the working directory", () => {
     assert.equal(classifyWriteTarget(".env", CWD).protectedReason, "protected file `.env`");
     assert.equal(classifyWriteTarget(".git/hooks/pre-commit", CWD).protectedReason, "protected directory `.git`");
+  });
+
+  it("allows an exact configured path to bypass protection and project scope", () => {
+    const path = "/Users/dev/dotfiles/pi/.pi/agent/models.json";
+    const target = classifyWriteTarget(path, CWD, [], [path]);
+    assert.equal(target.allowedPath, `configured allowed path \`${path}\``);
+    assert.equal(target.protectedReason, undefined);
+    assert.equal(target.outsideCwd, true);
   });
 });

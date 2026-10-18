@@ -10,7 +10,8 @@
  * `@nilskluewer/pi-auto-permission-gate` extension; see README "Acknowledgements".
  */
 
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export interface CommandRuleConfig {
   /** Shell-style `*` / `?` patterns that auto-approve without asking Jev. */
@@ -479,12 +480,35 @@ function normalizeForMatching(absolutePath: string): string {
   return absolutePath.replace(/\\/g, "/");
 }
 
+function expandAllowedPath(entry: string): string | undefined {
+  if (entry === "~") return homedir();
+  if (entry.startsWith("~/")) return join(homedir(), entry.slice(2));
+  return isAbsolute(entry) ? entry : undefined;
+}
+
+/**
+ * Return the configured allow-list entry matching an absolute write target.
+ * Allow-list entries are exact absolute paths; `~/...` is expanded against the
+ * account running Pi. Relative entries are ignored so a project cannot make the
+ * meaning depend on the current working directory.
+ */
+export function allowedPathReason(absolutePath: string, allowedPaths: readonly string[] = []): string | undefined {
+  const normalizedTarget = normalizeForMatching(resolve(absolutePath)).toLowerCase();
+  const matchingEntry = allowedPaths.map((entry) => entry.trim()).find((entry) => {
+    if (!entry) return false;
+    const expanded = expandAllowedPath(entry);
+    return expanded !== undefined && normalizeForMatching(resolve(expanded)).toLowerCase() === normalizedTarget;
+  });
+  return matchingEntry === undefined ? undefined : `configured allowed path \`${matchingEntry}\``;
+}
+
 /**
  * Classify a path against the protected locations.
  *
  * `extraProtectedPaths` comes from settings. An entry containing `/` is matched as a
  * path fragment; anything else is matched against the file name. Matching is
- * case-insensitive on the normalized path.
+ * case-insensitive on the normalized path. Exact `allowedPaths` are checked before
+ * protected paths and are intended only for a narrow, user-owned global list.
  */
 export function protectedPathReason(
   absolutePath: string,
@@ -524,6 +548,7 @@ export interface WriteTarget {
   readonly absolute: string;
   readonly relativeToCwd: string | undefined;
   readonly outsideCwd: boolean;
+  readonly allowedPath: string | undefined;
   readonly protectedReason: string | undefined;
 }
 
@@ -537,6 +562,7 @@ export function classifyWriteTarget(
   inputPath: string,
   cwd: string,
   extraProtectedPaths: readonly string[] = [],
+  allowedPaths: readonly string[] = [],
 ): WriteTarget {
   const projectRoot = resolve(cwd);
   const absolute = resolve(projectRoot, inputPath);
@@ -545,11 +571,14 @@ export function classifyWriteTarget(
     ? true
     : relativeToCwd === ".." || relativeToCwd.startsWith(`..${sep}`) || relativeToCwd === "";
 
+  const allowedPath = allowedPathReason(absolute, allowedPaths);
+
   return {
     absolute,
     relativeToCwd: outsideCwd ? undefined : relativeToCwd,
     outsideCwd,
-    protectedReason: protectedPathReason(absolute, extraProtectedPaths),
+    allowedPath,
+    protectedReason: allowedPath === undefined ? protectedPathReason(absolute, extraProtectedPaths) : undefined,
   };
 }
 

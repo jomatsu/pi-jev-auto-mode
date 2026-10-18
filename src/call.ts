@@ -30,6 +30,8 @@ export interface GatedCall {
   readonly path?: string;
   /** write/edit: target relative to the working directory, when inside it. */
   readonly relativePath?: string;
+  /** write/edit: configured exact-path allow-list entry, when matched. */
+  readonly allowedPath?: string;
   readonly outsideCwd: boolean;
   readonly protectedReason?: string;
   /** write/edit: number of edit hunks. */
@@ -43,6 +45,8 @@ export interface CallOptions {
   readonly maxCommandLength?: number;
   /** Additional protected locations from settings. */
   readonly extraProtectedPaths?: readonly string[];
+  /** Exact absolute paths, or `~/...` paths, allowed without Jev. */
+  readonly allowedPaths?: readonly string[];
 }
 
 export const DEFAULT_MAX_COMMAND_LENGTH = 4000;
@@ -104,7 +108,12 @@ export function buildGatedCall(event: ToolCallEventLike, options: CallOptions): 
 
   if (event.toolName === "write" || event.toolName === "edit") {
     const inputPath = asString(event.input.path) ?? "";
-    const target = classifyWriteTarget(inputPath, options.cwd, options.extraProtectedPaths ?? []);
+    const target = classifyWriteTarget(
+      inputPath,
+      options.cwd,
+      options.extraProtectedPaths ?? [],
+      options.allowedPaths ?? [],
+    );
     const editCount = Array.isArray(event.input.edits) ? event.input.edits.length : undefined;
     const contentLength = asString(event.input.content)?.length;
 
@@ -113,6 +122,7 @@ export function buildGatedCall(event: ToolCallEventLike, options: CallOptions): 
       summary: `${event.toolName} ${target.relativeToCwd ?? target.absolute}`,
       path: target.absolute,
       relativePath: target.relativeToCwd,
+      allowedPath: target.allowedPath,
       outsideCwd: target.outsideCwd,
       protectedReason: target.protectedReason,
       editCount,

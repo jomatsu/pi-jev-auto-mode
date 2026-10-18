@@ -473,6 +473,21 @@ describe("file tools", () => {
     assert.deepEqual(inputs[0]?.reasons, ["protected file `.env`"]);
   });
 
+  it("allows a configured path without sending it to Jev", async () => {
+    const path = "/Users/dev/dotfiles/pi/.pi/agent/models.json";
+    const { deps, records, inputs } = createDeps({ verdict: { verdict: "deny", rationale: "should not be consulted" } });
+    const result = await evaluateToolCall(
+      { toolName: "edit", input: { path, edits: [{ oldText: "a", newText: "b" }] } },
+      createContext(),
+      stateWith({ allowedPaths: [path] }),
+      deps,
+    );
+    assert.equal(result, undefined);
+    assert.deepEqual(inputs, []);
+    assert.equal(records[0]?.source, "user-rule");
+    assert.equal(records[0]?.status, "allowed");
+  });
+
   it("escalates a write that escapes the working directory", async () => {
     const { deps, records, inputs } = createDeps({ verdict: { verdict: "deny", rationale: "outside the project" } });
     const result = await evaluateToolCall(
