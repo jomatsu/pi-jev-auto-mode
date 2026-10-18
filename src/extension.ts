@@ -58,6 +58,7 @@ import {
   JevAutoModeStore,
   isDisplayMode,
   isGateScope,
+  isIntentJudgment,
   isJevModelName,
   isUncertainAction,
   parseThreshold,
@@ -69,6 +70,7 @@ import {
   describeSettings,
   DISPLAY_EXPLANATION,
   GATE_SCOPE_EXPLANATION,
+  INTENT_EXPLANATION,
   MODEL_EXPLANATION,
   UNCERTAIN_EXPLANATION,
   formatRuleTable,
@@ -520,6 +522,7 @@ export function createEngine(
     ...(availability.provider === "strands" ? {} : { model: availability.model }),
     maxStateCharacters: settings.maxStateCharacters,
     thresholds: settings.thresholds,
+    intentJudgment: settings.intentJudgment,
     ...(options.onObservation === undefined ? {} : { onObservation: options.onObservation }),
   });
 }
@@ -664,10 +667,15 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
       const value = String(argumentPrefix ?? "");
       const tokens = value.split(/\s+/).filter(Boolean);
       if (tokens.length === 0) {
-        return ["status", "on", "off", "policy", "threshold", "scope", "uncertain", "display", "model", "login", "logout"].map((item) => ({
+        return ["status", "on", "off", "policy", "threshold", "scope", "intent", "uncertain", "display", "model", "login", "logout"].map((item) => ({
           value: item,
           label: item,
         }));
+      }
+      if (tokens[0] === "intent" && tokens.length <= 2) {
+        return ["on", "off"]
+          .filter((item) => item.startsWith(tokens[1] ?? ""))
+          .map((item) => ({ value: `intent ${item}`, label: item }));
       }
       if (tokens[0] === "threshold") {
         if (tokens.length <= 1) {
@@ -847,6 +855,24 @@ export function register(pi: ExtensionAPI, options: RegisterOptions = {}): void 
         state.settings = { ...state.settings, gateScope: argument };
         await save(gateContext);
         ctx.ui.notify(`gate scope now: ${argument}\n\n${GATE_SCOPE_EXPLANATION}`, "info");
+        return;
+      }
+
+      if (value.startsWith("intent")) {
+        const argument = value.slice("intent".length).trim();
+        if (argument === "") {
+          ctx.ui.notify(`intent judgment: ${state.settings.intentJudgment}\n\n${INTENT_EXPLANATION}`, "info");
+          return;
+        }
+        if (!isIntentJudgment(argument)) {
+          ctx.ui.notify(`Expected one of on, off.\n\n${INTENT_EXPLANATION}`, "error");
+          return;
+        }
+
+        state.settings = { ...state.settings, intentJudgment: argument };
+        await save(gateContext);
+        await rebuildEngine();
+        ctx.ui.notify(`intent judgment now: ${argument}\n\n${INTENT_EXPLANATION}`, "info");
         return;
       }
 

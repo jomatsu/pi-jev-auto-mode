@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add `intentJudgment` (`on` by default, `/jev-auto-mode intent on|off`) to omit the
+  dangerous-call intent question without disabling the deterministic or other semantic hazards.
+
 ## 0.6.0 - 2026-10-18
 
 - Add explicit decision backends for Perplexity Decisions, Cloudflare Clef/Clef-flash,

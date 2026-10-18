@@ -49,6 +49,7 @@ export function describeSettings(settings: JevAutoModeSettings, scope: SettingsS
     `extra protected paths: ${settings.extraProtectedPaths.length}`,
     `max state characters: ${settings.maxStateCharacters}`,
     `uncertain band: ${settings.uncertain}`,
+    `intent judgment: ${settings.intentJudgment}`,
     `gate scope: ${settings.gateScope}`,
     `display: ${settings.display}`,
     `jev model: ${settings.jevModel ?? "latest"}`,
@@ -156,6 +157,8 @@ export const USAGE_TEXT = [
   "  /jev-auto-mode threshold edit      pick a rule and type a value",
   "  /jev-auto-mode uncertain            show what the middle band resolves to",
   "  /jev-auto-mode uncertain deny|ask|allow",
+  "  /jev-auto-mode intent                show whether intent judgment is enabled",
+  "  /jev-auto-mode intent on|off",
   "  /jev-auto-mode scope all|matched    which calls reach Jev",
   "  /jev-auto-mode display full|compact how decision records are drawn",
   "  /jev-auto-mode model               show the Jev model and the releases available to the key",
@@ -193,6 +196,13 @@ export const UNCERTAIN_EXPLANATION = [
   "  deny  - block it. No prompt, no screen takeover: Jev's probability is the answer.",
   "  ask   - hand the call to the user. Opt-in, because it hands the decision back to a human.",
   "  allow - let it through. Trusts the band; the least safe of the three.",
+].join("\n");
+
+export const INTENT_EXPLANATION = [
+  "Whether Jev asks if a dangerous call is covered by the user's request.",
+  "  on  - include intent_coverage (default); a clear negative blocks.",
+  "  off - omit that question; hard hazards still block.",
+  "Disabling intent does not allow outside-project writes: use allowedPaths for those.",
 ].join("\n");
 
 export const POLICY_HEADER = [

@@ -77,6 +77,12 @@ satisfied nor rejecting — resolves to an approval (`uncertain: "allow"`, since
 A valid uncertain judgment is distinct from a missing decision: no engine, timeout,
 malformed response, HTTP failure, and cancellation always block, under all three settings.
 
+`intentJudgment` controls only the `intent_coverage` question for calls the deterministic
+layer has already flagged as dangerous. `on` is the default; `off` omits that question while
+leaving hard-deny rules and the other Jev hazard checks active. A soft hazard such as an
+outside-project write still cannot be cleared by a user request when intent judgment is off;
+use a narrow `allowedPaths` entry for an intentional external target.
+
 ## Install
 
 ```sh
@@ -114,6 +120,8 @@ Packages are discovered in the [package gallery](https://pi.dev/packages) throug
 /jev-auto-mode threshold reset [rule]   restore the default threshold
 /jev-auto-mode uncertain                show what the middle band resolves to
 /jev-auto-mode uncertain deny|ask|allow
+/jev-auto-mode intent                    show whether intent judgment is enabled
+/jev-auto-mode intent on|off
 /jev-auto-mode scope all|matched        how far the semantic layer reaches
 /jev-auto-mode display full|compact     how decision records are drawn
 /jev-auto-mode model                    show the Jev model and the releases your key can use
@@ -258,6 +266,7 @@ Policy notes: `$PI_CODING_AGENT_DIR/jev-auto-mode-policy.md`.
   "extraProtectedPaths": [],
   "maxStateCharacters": 120000,
   "uncertain": "allow",
+  "intentJudgment": "on",
   "gateScope": "all",
   "display": "compact",
   "thresholds": {}
@@ -277,6 +286,11 @@ Policy notes: `$PI_CODING_AGENT_DIR/jev-auto-mode-policy.md`.
   |---|---|
   | `safeCommands` | Run without a decision record. For commands that are safe *on your machine*: `uv run pytest*`, `npm run test*`, `cargo test*`, `go test ./...*` |
   | `allowedCommands` | Override a dangerous-pattern match. The override is recorded, so approving `rm -rf build` by rule is visible |
+  | `intentJudgment` | `on` asks whether dangerous calls are covered by the user's request; `off` omits that question while retaining hard hazards |
+
+  `intentJudgment: "off"` is not an allow-all switch. It removes only the semantic question
+  "is this dangerous call part of the user's request?". Hard-deny patterns, secret-egress,
+  prompt-injection, downloaded-code, and other hazard checks still run.
 
   The built-in safe list is not configurable and holds read-only inspection only (`git
   status`/`diff`/`log`/`show`/`branch`, `ls`, `pwd`, `rg`, `grep`). It deliberately contains no

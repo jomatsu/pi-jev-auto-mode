@@ -45,6 +45,14 @@ describe("parseSettingsPatch", () => {
     assert.equal(parseSettingsPatch({ uncertain: true }).uncertain, undefined);
   });
 
+  it("accepts only known intent judgment settings", () => {
+    assert.equal(DEFAULT_SETTINGS.intentJudgment, "on");
+    assert.equal(parseSettingsPatch({ intentJudgment: "on" }).intentJudgment, "on");
+    assert.equal(parseSettingsPatch({ intentJudgment: "off" }).intentJudgment, "off");
+    assert.equal(parseSettingsPatch({ intentJudgment: "maybe" }).intentJudgment, undefined);
+    assert.equal(parseSettingsPatch({ intentJudgment: true }).intentJudgment, undefined);
+  });
+
   it("ignores non-object input", () => {
     assert.deepEqual(parseSettingsPatch("nope"), {});
     assert.deepEqual(parseSettingsPatch([1, 2]), {});

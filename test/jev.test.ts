@@ -350,6 +350,32 @@ describe("engine", () => {
     assert.match(verdict.rationale, /not part of what the user asked for/);
   });
 
+  it("omits the intent question when intent judgment is disabled", async () => {
+    const rules = askedRules("bash").filter((rule) => rule.id !== "intent_coverage");
+    const probabilities: Record<string, number> = {};
+    for (const rule of rules) probabilities[rule.id] = 1;
+    const { transport, requests } = stubTransport({ ok: true, response: answerBody(probabilities) });
+    const engine = createJevEngine({ transport, intentJudgment: "off" });
+
+    const verdict = await engine.judge(candidate(bashCall("git reset --hard HEAD~1")), {});
+    assert.equal(verdict.verdict, "allow");
+    assert.equal(Object.hasOwn(requests[0]?.questions ?? {}, "intent_coverage"), false);
+    assert.equal(verdict.probabilities?.intent_coverage, undefined);
+  });
+
+  it("does not let intent judgment disable hard hazards", async () => {
+    const rules = askedRules("bash").filter((rule) => rule.id !== "intent_coverage");
+    const probabilities: Record<string, number> = {};
+    for (const rule of rules) probabilities[rule.id] = 1;
+    probabilities.no_secret_egress = 0;
+    const { transport } = stubTransport({ ok: true, response: answerBody(probabilities) });
+    const engine = createJevEngine({ transport, intentJudgment: "off" });
+
+    const verdict = await engine.judge(candidate(bashCall("git reset --hard HEAD~1")), {});
+    assert.equal(verdict.verdict, "deny");
+    assert.match(verdict.rationale, /sends secret material/);
+  });
+
   it("reports every condition to the calibration hook, including passing ones", async () => {
     const seen: string[] = [];
     const { transport } = stubTransport({ ok: true, response: answerBody(satisfiedFor("bash")) });

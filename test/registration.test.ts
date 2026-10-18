@@ -475,6 +475,20 @@ describe("command wiring", () => {
     assert.equal((await store.loadSettings(cwd, true)).settings.gateScope, "matched");
   });
 
+  it("switches intent judgment, persists it, and explains the boundary", async () => {
+    const { cwd, store, harness } = await setup();
+    const command = harness.commands.get(AUTO_MODE_COMMAND);
+    assert.ok(command);
+
+    await command.handler("intent", createContext(harness, cwd));
+    assert.match(harness.notifications.at(-1)?.message ?? "", /intent judgment: on/);
+
+    await command.handler("intent off", createContext(harness, cwd));
+    assert.equal((await store.loadSettings(cwd, true)).settings.intentJudgment, "off");
+    assert.match(harness.notifications.at(-1)?.message ?? "", /intent judgment now: off/);
+    assert.match(harness.notifications.at(-1)?.message ?? "", /hard hazards still block/);
+  });
+
   it("tunes a threshold through the picker", async () => {
     const { cwd, store, harness } = await setup();
     const command = harness.commands.get(AUTO_MODE_COMMAND);

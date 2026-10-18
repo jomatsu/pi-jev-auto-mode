@@ -13,6 +13,7 @@ import { toJevState, NO_POLICY_PLACEHOLDER } from "../call.ts";
 import type { CandidateInput, ConditionReport, DecisionEngine, EngineVerdict, JudgeOptions } from "../decide.ts";
 import { combine, observe, type Observation } from "./decide.ts";
 import { DEFAULT_RULES, applyThresholdOverrides, buildQuestions, rulesForTool, type JevRule } from "./questions.ts";
+import type { IntentJudgment } from "../settings.ts";
 import { parseAnswers } from "./response.ts";
 import type { JevTransport } from "./types.ts";
 
@@ -30,6 +31,8 @@ export interface JevEngineOptions {
   readonly model?: string;
   /** Per-rule threshold overrides from settings. */
   readonly thresholds?: Readonly<Record<string, number>>;
+  /** Whether to include the dangerous-call intent question. Defaults to `on`. */
+  readonly intentJudgment?: IntentJudgment;
   /** Shared state + questions budget, in characters. */
   readonly maxStateCharacters?: number;
   readonly now?: () => number;
@@ -73,7 +76,7 @@ export function createJevEngine(options: JevEngineOptions): DecisionEngine {
           hasProtectedTarget: input.call.protectedReason !== undefined,
           reasons: input.reasons,
           flagged: input.flagged,
-        }),
+        }).filter((rule) => options.intentJudgment !== "off" || rule.id !== "intent_coverage"),
         options.thresholds,
       );
       const state = toJevState(input);

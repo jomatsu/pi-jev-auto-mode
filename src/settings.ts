@@ -30,6 +30,8 @@ export interface JevAutoModeSettings {
   readonly maxStateCharacters: number;
   /** What a middle-band judgment means. Default `allow`: no user confirmation. */
   readonly uncertain: UncertainAction;
+  /** Whether Jev asks whether a dangerous call is covered by the user's request. */
+  readonly intentJudgment: IntentJudgment;
   /**
    * Which calls reach the semantic layer.
    *
@@ -92,6 +94,14 @@ export type UncertainAction = "deny" | "ask" | "allow";
 
 export const UNCERTAIN_ACTIONS: readonly UncertainAction[] = ["deny", "ask", "allow"];
 
+export type IntentJudgment = "on" | "off";
+
+export const INTENT_JUDGMENTS: readonly IntentJudgment[] = ["on", "off"];
+
+export function isIntentJudgment(value: unknown): value is IntentJudgment {
+  return typeof value === "string" && INTENT_JUDGMENTS.includes(value as IntentJudgment);
+}
+
 /**
  * How far the semantic layer reaches.
  *
@@ -118,6 +128,7 @@ export const DEFAULT_SETTINGS: JevAutoModeSettings = {
   extraProtectedPaths: [],
   maxStateCharacters: 120_000,
   uncertain: "allow",
+  intentJudgment: "on",
   gateScope: "all",
   thresholds: {},
   display: "compact",
@@ -218,6 +229,10 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
 
   if (record.uncertain !== undefined && isUncertainAction(record.uncertain)) {
     patch.uncertain = record.uncertain;
+  }
+
+  if (record.intentJudgment !== undefined && isIntentJudgment(record.intentJudgment)) {
+    patch.intentJudgment = record.intentJudgment;
   }
 
   if (record.gateScope !== undefined && isGateScope(record.gateScope)) {
