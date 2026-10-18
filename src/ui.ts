@@ -47,6 +47,7 @@ export function describeSettings(settings: JevAutoModeSettings, scope: SettingsS
     `allowed commands: ${settings.allowedCommands.length}`,
     `disallowed commands: ${settings.disallowedCommands.length}`,
     `extra protected paths: ${settings.extraProtectedPaths.length}`,
+    `allowed paths: ${settings.allowedPaths.length}`,
     `max state characters: ${settings.maxStateCharacters}`,
     `uncertain band: ${settings.uncertain}`,
     `gate scope: ${settings.gateScope}`,

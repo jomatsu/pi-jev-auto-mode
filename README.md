@@ -256,6 +256,10 @@ Policy notes: `$PI_CODING_AGENT_DIR/jev-auto-mode-policy.md`.
   "allowedCommands": ["rm -rf build*"],
   "disallowedCommands": ["npm publish*"],
   "extraProtectedPaths": [],
+  "allowedPaths": [
+    "~/dotfiles/pi/.pi/agent/models.json",
+    "~/dotfiles/pi/.pi/agent/settings.json"
+  ],
   "maxStateCharacters": 120000,
   "uncertain": "allow",
   "gateScope": "all",
@@ -277,6 +281,11 @@ Policy notes: `$PI_CODING_AGENT_DIR/jev-auto-mode-policy.md`.
   |---|---|
   | `safeCommands` | Run without a decision record. For commands that are safe *on your machine*: `uv run pytest*`, `npm run test*`, `cargo test*`, `go test ./...*` |
   | `allowedCommands` | Override a dangerous-pattern match. The override is recorded, so approving `rm -rf build` by rule is visible |
+  | `allowedPaths` | Allow exact absolute or `~/...` write/edit targets without Jev. Matches are recorded as user-rule decisions; keep this list narrow |
+
+  `allowedPaths` uses exact path matching, expands `~/...` against the account running Pi,
+  and does not accept relative paths. It bypasses both protected-path and outside-working-directory
+  checks for the listed targets, so only add files you intentionally want the agent to edit.
 
   The built-in safe list is not configurable and holds read-only inspection only (`git
   status`/`diff`/`log`/`show`/`branch`, `ls`, `pwd`, `rg`, `grep`). It deliberately contains no

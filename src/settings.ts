@@ -26,6 +26,8 @@ export interface JevAutoModeSettings {
   readonly allowedCommands: readonly string[];
   readonly disallowedCommands: readonly string[];
   readonly extraProtectedPaths: readonly string[];
+  /** Exact absolute paths, or `~/...` paths, allowed without Jev. */
+  readonly allowedPaths: readonly string[];
   /** Shared state + questions budget guard, in characters. */
   readonly maxStateCharacters: number;
   /** What a middle-band judgment means. Default `allow`: no user confirmation. */
@@ -116,6 +118,7 @@ export const DEFAULT_SETTINGS: JevAutoModeSettings = {
   allowedCommands: [],
   disallowedCommands: [],
   extraProtectedPaths: [],
+  allowedPaths: [],
   maxStateCharacters: 120_000,
   uncertain: "allow",
   gateScope: "all",
@@ -243,6 +246,9 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
   const extraProtectedPaths =
     record.extraProtectedPaths === undefined ? undefined : readStringArray(record.extraProtectedPaths);
   if (extraProtectedPaths !== undefined) patch.extraProtectedPaths = extraProtectedPaths;
+
+  const allowedPaths = record.allowedPaths === undefined ? undefined : readStringArray(record.allowedPaths);
+  if (allowedPaths !== undefined) patch.allowedPaths = allowedPaths;
 
   const thresholds = record.thresholds === undefined ? undefined : readThresholds(record.thresholds);
   if (thresholds !== undefined) patch.thresholds = thresholds;

@@ -79,6 +79,10 @@ when it said `deny` or when no decision was available.
 - File contents and diffs are never sent. Only paths.
 - `AGENTS.md` / `CLAUDE.md` and the agent configuration directories are treated as protected
   paths: a write there changes what the agent believes it was told.
+- `allowedPaths` is an explicit escape hatch for exact paths the machine owner wants Pi to
+  manage, such as a dotfiles copy of `models.json` or `settings.json`. It bypasses both
+  protected-path and outside-working-directory checks, so it must remain a short global list;
+  do not add `auth.json`, `secrets/`, session files, or other credential-bearing paths.
 - One dedicated condition (`prompt_injection_absent`) asks whether the call is trying to make
   other state act as instructions.
 - The gate never returns a Jev rationale verbatim as a system-level instruction; a block

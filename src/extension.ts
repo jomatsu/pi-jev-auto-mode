@@ -217,8 +217,19 @@ export async function evaluateToolCall(
   const call = buildGatedCall(event, {
     cwd: ctx.cwd,
     extraProtectedPaths: state.settings.extraProtectedPaths,
+    allowedPaths: state.settings.allowedPaths,
   });
   if (!call) return undefined;
+
+  if (call.allowedPath !== undefined) {
+    return permit(deps, {
+      call,
+      reasons: [call.allowedPath],
+      status: "allowed",
+      source: "user-rule",
+      rationale: `Configured allowed path matched: ${call.allowedPath}.`,
+    });
+  }
 
   const ruleConfig = {
     allowedCommands: state.settings.allowedCommands,

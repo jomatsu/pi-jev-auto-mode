@@ -30,6 +30,13 @@ describe("parseSettingsPatch", () => {
     assert.deepEqual(patch, { allowedCommands: ["ok"] });
   });
 
+  it("accepts exact allowed paths", () => {
+    const patch = parseSettingsPatch({
+      allowedPaths: ["~/dotfiles/pi/.pi/agent/models.json", 42, ""],
+    });
+    assert.deepEqual(patch.allowedPaths, ["~/dotfiles/pi/.pi/agent/models.json"]);
+  });
+
   it("defaults to judging everything the deterministic layer cannot vouch for", () => {
     assert.equal(DEFAULT_SETTINGS.gateScope, "all");
     assert.equal(parseSettingsPatch({ gateScope: "matched" }).gateScope, "matched");
