@@ -1,10 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 - 2026-10-18
 
 - Add explicit decision backends for Perplexity Decisions, Cloudflare Clef/Clef-flash,
-  OpenAI Decisions (`gpt-6-luna`), and a loopback Strands Decider server. TypeSafe remains the default; provider selection
-  is environment-only and credentials are never reused across providers.
+  OpenAI Decisions (`gpt-6-luna`), and a loopback Strands Decider server. TypeSafe remains
+  the default; provider selection is environment-only and credentials are never reused
+  across providers.
 - Validate each REST contract, including Cloudflare's result envelope and finite `noul`
   probabilities for every requested question. Errors remain blocked under every uncertain
   policy. Bound retries, preserve cancellation, and serialize local Strands requests.
