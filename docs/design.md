@@ -152,8 +152,8 @@ the published package:
 - `scripts/e2e.ts` runs the same fixtures through the real gate path (deterministic layer,
   real Jev, block/ask routing, records) and compares the decision against the expectation.
 
-The provider tests also exercise Perplexity, Cloudflare REST envelopes and local Strands
-through `evaluateToolCall`, including all three uncertain policies, unavailable providers,
+The provider tests also exercise Perplexity, Cloudflare REST envelopes, OpenAI predicates and
+local Strands through `evaluateToolCall`, including all three uncertain policies, unavailable providers,
 malformed answers, timeouts, cancellation, retries and the outbound data boundary.
 These are contract tests, not live inference or calibration. See [`providers.md`](./providers.md).
 

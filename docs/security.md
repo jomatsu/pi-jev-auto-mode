@@ -50,7 +50,7 @@ The table also distinguishes valid uncertain judgments from failures.
 
 | Failure | Resolution |
 |---|---|
-| No semantic engine configured (no API key), invalid provider, or unsupported OpenAI adapter | block with an explanation; no provider fallback |
+| No semantic engine configured (no API key for the selected provider) or invalid provider | block with an explanation; no provider fallback |
 | API key missing or rejected | block, with the reason surfaced to the model |
 | Login with a key the API refuses | the key is not stored, so a typo cannot become a permanently blocking gate |
 | Login while the API is unreachable | the key is not stored and the command says it could not verify |
@@ -66,6 +66,7 @@ The table also distinguishes valid uncertain judgments from failures.
 | A valid middle-band judgment with the default `uncertain: allow` | allow — the existing policy since 0.4.1 |
 | No UI available for a confirmation when `uncertain: ask` | block (`no-ui`) |
 | A condition answered by fewer than all keys | block (`malformed_response`) — a missing answer is never an approval |
+| The model refuses a question (OpenAI `refusal`) | block (`refused`) under every `uncertain` setting |
 
 A confirmation is not a bypass: it runs only when the semantic layer said `uncertain`, never
 when it said `deny` or when no decision was available.
@@ -100,10 +101,10 @@ change the provider or endpoint. The payload is deliberately narrow:
 
 The TypeSafe API key is stored as a `0600` file under `<agentDir>/secrets/`, the same place Pi keeps its
 own credentials. It is never written to the settings file, and it is never part of the judgment
-state: it travels only in the `Authorization` header to TypeSafe. Perplexity and Cloudflare
-read their own environment key and send it only to their fixed API origin. The TypeSafe
-key is never reused for those providers; Strands receives no key. The new HTTP adapters
-reject redirects. OpenAI selection does not send anything.
+state: it travels only in the `Authorization` header to TypeSafe. Perplexity, Cloudflare and
+OpenAI read their own environment key and send it only to their fixed API origin. The TypeSafe
+key is never reused for those providers; Strands receives no key. The HTTP adapters reject
+redirects. A model refusal from OpenAI is treated as no decision and blocks.
 
 Redaction runs on bash command text before the state is built: `*_KEY=` / `*_TOKEN=` / `*_SECRET=` assignments,
 `Bearer …`, JWTs, `sk-` / `rk-` keys, `ghp_` / `gho_` tokens, `AKIA…` access key IDs,

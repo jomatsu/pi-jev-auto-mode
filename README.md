@@ -1,8 +1,8 @@
 # pi-jev-auto-mode
 
 Auto mode for the [Pi coding agent](https://github.com/earendil-works/pi-mono) backed by
-**decision models**, with Jev (TypeSafe System One) as the default. Perplexity Decisions,
-Cloudflare Clef, and a local Strands Decider server are also supported; see
+**decision models**, with Jev (TypeSafe System One) as the default. OpenAI Decisions,
+Perplexity Decisions, Cloudflare Clef, and a local Strands Decider server are also supported; see
 [`docs/providers.md`](./docs/providers.md). Pi has no built-in permission system,
 so a gate either exists as an extension or it does not exist at all. This one judges
 `bash`, `write`, and `edit` tool calls semantically and **fails closed** whenever a decision
@@ -116,6 +116,8 @@ Packages are discovered in the [package gallery](https://pi.dev/packages) throug
 /jev-auto-mode uncertain deny|ask|allow
 /jev-auto-mode scope all|matched        how far the semantic layer reaches
 /jev-auto-mode display full|compact     how decision records are drawn
+/jev-auto-mode model                    show the Jev model and the releases your key can use
+/jev-auto-mode model latest|<release>   follow jev-latest (default) or pin a release
 ```
 
 Each decision leaves a record in the transcript. `display: "compact"` (the default) folds an
@@ -136,8 +138,24 @@ nothing vouches for is blocked with "Not connected to Jev" instead of being judg
 stores it as an owner-only file at
 `$PI_CODING_AGENT_DIR/secrets/jev-auto-mode-typesafe-api-key` (mode `0600`) — the same place Pi
 keeps its own credentials, so it is never committed with a project. `TYPESAFE_API_KEY` takes
-precedence when set, so a one-off or CI override needs no login. `TYPESAFE_DEFAULT_MODEL`
-selects the model (default `jev-latest`).
+precedence when set, so a one-off or CI override needs no login.
+
+### Jev releases
+
+The default model is `jev-latest`, which TypeSafe resolves to its newest Jev release, so the
+gate follows new releases without any change. To keep judgments on one release, pin it:
+
+```
+/jev-auto-mode model               # current model + releases available to your key, newest first
+/jev-auto-mode model jev-1.13.0    # pin a release ("jevModel" in the global settings)
+/jev-auto-mode model latest        # back to jev-latest
+```
+
+A release is saved only after the API lists it for your key, so a typo cannot turn into a gate
+that blocks every escalated call. `JEV_AUTO_MODE_MODEL` or `TYPESAFE_DEFAULT_MODEL` in the
+environment take precedence over the setting; `/jev-auto-mode status` shows which one applied.
+The thresholds were calibrated on one release, so re-check them after pinning another
+([Tuning](#tuning)).
 
 A key is only stored after the API accepts it: a typo that got saved would turn into a gate
 that silently blocks every escalated call. If the API cannot be reached the key is not stored
@@ -160,17 +178,19 @@ another provider.
 | `perplexity` | `pplx-decider-v1-27b` | `PERPLEXITY_API_KEY` |
 | `cloudflare` | `clef` or `clef-flash` | `CLOUDFLARE_AUTH_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | `strands` | chosen by the local server (leave unset) | `STRANDS_DECIDER_BASE_URL`, loopback only, default `http://127.0.0.1:8000` |
-| `openai` | — | **not implemented**: blocks escalated calls and sends no requests |
+| `openai` | `gpt-6-luna` | `OPENAI_API_KEY` |
 
 ```sh
 JEV_AUTO_MODE_PROVIDER=perplexity pi
 JEV_AUTO_MODE_PROVIDER=cloudflare JEV_AUTO_MODE_MODEL=clef-flash pi
 JEV_AUTO_MODE_PROVIDER=strands pi
+JEV_AUTO_MODE_PROVIDER=openai pi
 ```
 
 The footer shows the active provider (`🛡 perplexity (<scope>)`), or `🛡 <provider> unavailable
 (<scope>)` plus a warning with the reason when its configuration is missing or invalid; the gate then blocks
-what it cannot judge, exactly as without a TypeSafe key. Remote providers retry network errors
+what it cannot judge, exactly as without a TypeSafe key. An OpenAI refusal is treated the same
+way: no decision, so the call is blocked. Remote providers retry network errors
 (including a connection lost while reading the response), 408, 429, and 5xx within the timeout
 budget. Strands is never retried: requests are serialized per loopback server, and if a
 dispatched request ends before its response is fully read, that endpoint is blocked for the rest
@@ -244,6 +264,9 @@ Policy notes: `$PI_CODING_AGENT_DIR/jev-auto-mode-policy.md`.
 }
 ```
 
+`jevModel` (for example `"jev-1.13.0"`) pins a Jev release; leave it out to follow
+`jev-latest`. Set it with `/jev-auto-mode model` so the release is checked first.
+
 - Allow patterns never match a command containing shell control syntax (`;`, `&&`, `|`,
   redirection, substitution), so `ls*` cannot approve `ls && rm -rf /`.
 - Malformed values are dropped rather than defaulted, so a broken project file cannot pin a
@@ -264,7 +287,7 @@ Policy notes: `$PI_CODING_AGENT_DIR/jev-auto-mode-policy.md`.
 ## What leaves the machine
 
 An escalated call sends the following to the selected provider: TypeSafe by default,
-Perplexity or Cloudflare when explicitly selected, or the loopback Strands server:
+OpenAI, Perplexity or Cloudflare when explicitly selected, or the loopback Strands server:
 
 - the tool name and the bash command text (truncated),
 - for `write` / `edit`: the target **path** — never the file contents or the diff,
@@ -307,7 +330,7 @@ Layout:
 | `src/intent.ts` | recent user-authored intent only |
 | `src/decide.ts` | the decision-engine seam (`DecisionEngine`) |
 | `src/providers.ts` | explicit provider selection, credentials, model and endpoint validation |
-| `src/decision-http.ts` | Perplexity, Cloudflare REST, and local Strands transport contracts |
+| `src/decision-http.ts` | OpenAI, Perplexity, Cloudflare REST, and local Strands transport contracts |
 | `src/jev/questions.ts` | the condition set, modes, severities, thresholds |
 | `src/jev/availability.ts` | where the API key comes from (env or stored secret) |
 | `src/jev/decide.ts` | probability → condition verdict → decision |

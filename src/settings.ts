@@ -54,6 +54,19 @@ export interface JevAutoModeSettings {
    * expansion key) always shows every detail, whichever mode is set.
    */
   readonly display: DisplayMode;
+  /**
+   * A pinned Jev release for the TypeSafe provider (for example `jev-1.13.0`).
+   *
+   * Unset means `jev-latest`, which TypeSafe resolves to the newest release. The
+   * `JEV_AUTO_MODE_MODEL` and `TYPESAFE_DEFAULT_MODEL` environment variables take
+   * precedence, and other providers ignore this setting.
+   */
+  readonly jevModel?: string;
+}
+
+/** Model ids are short tokens; anything else is a typo or an injection attempt. */
+export function isJevModelName(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value);
 }
 
 export type DisplayMode = "full" | "compact";
@@ -214,6 +227,8 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
   if (record.display !== undefined && isDisplayMode(record.display)) {
     patch.display = record.display;
   }
+
+  if (typeof record.jevModel === "string" && isJevModelName(record.jevModel)) patch.jevModel = record.jevModel;
 
   const safeCommands = record.safeCommands === undefined ? undefined : readStringArray(record.safeCommands);
   if (safeCommands !== undefined) patch.safeCommands = safeCommands;

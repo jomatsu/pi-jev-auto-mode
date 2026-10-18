@@ -125,6 +125,100 @@ describe("decision HTTP contracts", () => {
   }
 });
 
+describe("OpenAI Decisions contract", () => {
+  const openai = (fetch: NonNullable<HttpDecisionOptions["fetch"]>, overrides: Partial<HttpDecisionOptions> = {}) => transport(fetch, {
+    provider: "openai", endpoint: "https://api.openai.com/v1/decisions", apiKey: "openai-test-key", ...overrides,
+  });
+  const twoQuestions: JevRequest = {
+    ...request,
+    model: "gpt-6-luna",
+    questions: {
+      permitted: request.questions.permitted!,
+      local_scope: { type: "noul", instructions: { rule: "local only" }, criteria: null },
+    },
+  };
+  const predicate = (name: string, probability: unknown) => ({ type: "predicate", name, probability });
+  const reply = (answers: unknown[], extra: Record<string, unknown> = {}) => json({ model: "gpt-6-luna", answers, usage: { input_tokens: 42 }, ...extra });
+
+  it("sends model, the state as input text, and predicate questions in key order", async () => {
+    const client = openai(async (url, init) => {
+      assert.equal(url, "https://api.openai.com/v1/decisions");
+      assert.equal(init?.method, "POST");
+      assert.equal(init.redirect, "error");
+      assert.equal(new Headers(init.headers).get("authorization"), "Bearer openai-test-key");
+      const body = JSON.parse(String(init.body));
+      assert.deepEqual(Object.keys(body).sort(), ["input", "model", "questions"]);
+      assert.equal(body.model, "gpt-6-luna");
+      assert.deepEqual(JSON.parse(body.input), twoQuestions.state);
+      assert.deepEqual(body.questions, [
+        { type: "predicate", name: "permitted", instructions: "Was this requested?\nTrue when: Requested\nFalse when: Unrequested" },
+        { type: "predicate", name: "local_scope", instructions: "{\"rule\":\"local only\"}" },
+      ]);
+      return reply([predicate("permitted", 0.97), predicate("local_scope", 0)]);
+    });
+    assert.deepEqual(await client.systemOne(twoQuestions), {
+      ok: true,
+      response: {
+        model: "gpt-6-luna",
+        answers: { permitted: { type: "noul", noul: 0.97 }, local_scope: { type: "noul", noul: 0 } },
+        usage: { input_tokens: 42, output_tokens: 0 },
+      },
+    });
+  });
+
+  for (const [name, answers] of Object.entries({
+    "keyed object instead of an array": { permitted: predicate("permitted", 0.9), local_scope: predicate("local_scope", 0.9) },
+    "a missing answer": [predicate("permitted", 0.9)],
+    "an extra answer": [predicate("permitted", 0.9), predicate("local_scope", 0.9), predicate("extra", 0.9)],
+    "answers out of order": [predicate("local_scope", 0.9), predicate("permitted", 0.9)],
+    "an unnamed answer": [{ type: "predicate", name: null, probability: 0.9 }, predicate("local_scope", 0.9)],
+    "a choice answer": [{ type: "choice", name: "permitted", choice: true, confidence: 0.9 }, predicate("local_scope", 0.9)],
+    "a noul answer": [{ type: "noul", name: "permitted", noul: 0.9 }, predicate("local_scope", 0.9)],
+    "a string probability": [predicate("permitted", "0.9"), predicate("local_scope", 0.9)],
+    "a probability above one": [predicate("permitted", 1.01), predicate("local_scope", 0.9)],
+    "a negative probability": [predicate("permitted", -0.01), predicate("local_scope", 0.9)],
+    "a missing probability": [{ type: "predicate", name: "permitted" }, predicate("local_scope", 0.9)],
+  })) {
+    it(`rejects ${name}`, async () => {
+      assert.deepEqual(await openai(async () => json({ model: "gpt-6-luna", answers })).systemOne(twoQuestions),
+        { ok: false, reason: "malformed_response" });
+    });
+  }
+
+  it("rejects non-finite probabilities even if a body carries them", async () => {
+    for (const raw of ["NaN", "Infinity", "1e999"]) {
+      const body = `{"answers":[{"type":"predicate","name":"permitted","probability":${raw}}]}`;
+      assert.deepEqual(await openai(async () => new Response(body)).systemOne(request), { ok: false, reason: "malformed_response" });
+    }
+  });
+
+  it("treats a refusal as no judgment, even when other questions were answered", async () => {
+    const result = await openai(async () => reply([predicate("permitted", 0.99), { type: "refusal", name: "local_scope" }])).systemOne(twoQuestions);
+    assert.deepEqual(result, { ok: false, reason: "refused" });
+  });
+
+  it("limits requests to 200 questions", async () => {
+    let calls = 0;
+    const questions = (count: number) => Object.fromEntries(Array.from({ length: count }, (_, index) => [`q${index}`, request.questions.permitted!]));
+    const client = openai(async (_url, init) => {
+      calls++;
+      const body = JSON.parse(String(init?.body));
+      return reply(body.questions.map((question: { name: string }) => predicate(question.name, 0.5)));
+    });
+    assert.equal((await client.systemOne({ ...request, questions: questions(200) })).ok, true);
+    assert.deepEqual(await client.systemOne({ ...request, questions: questions(201) }), { ok: false, reason: "state_too_large" });
+    assert.equal(calls, 1);
+  });
+
+  it("retries 429 and 5xx like the other remote providers", async () => {
+    let calls = 0;
+    const client = openai(async () => ++calls === 1 ? json({ error: { message: "rate limited" } }, 429, { "retry-after": "0" }) : reply([predicate("permitted", 0.9)]),
+      { maxRetries: 1 });
+    assert.equal((await client.systemOne(request)).ok, true);
+    assert.equal(calls, 2);
+  });
+});
+
 describe("HTTP failures, timeouts, and cancellation", () => {
   for (const status of [301, 400, 401, 403, 404, 422]) {
     it(`does not retry ${status} or interpret its HTML body as an answer`, async () => {
@@ -162,9 +256,10 @@ describe("HTTP failures, timeouts, and cancellation", () => {
     assert.ok(sent[1]! - sent[0]! >= 75, `retried after ${sent[1]! - sent[0]!}ms`);
   });
 
-  for (const provider of ["perplexity", "cloudflare"] as const) {
+  for (const provider of ["perplexity", "cloudflare", "openai"] as const) {
     it(`retries ${provider} when the connection breaks while reading a 200 body`, async () => {
-      const ok = provider === "cloudflare" ? { result: answer, success: true, errors: [] } : answer;
+      const ok = provider === "cloudflare" ? { result: answer, success: true, errors: [] }
+        : provider === "openai" ? { answers: [{ type: "predicate", name: "permitted", probability: 0.99 }] } : answer;
       const broken = () => new Response(new ReadableStream({
         start(controller) {
           controller.enqueue(new TextEncoder().encode("{\"answers\":"));

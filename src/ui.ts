@@ -51,6 +51,7 @@ export function describeSettings(settings: JevAutoModeSettings, scope: SettingsS
     `uncertain band: ${settings.uncertain}`,
     `gate scope: ${settings.gateScope}`,
     `display: ${settings.display}`,
+    `jev model: ${settings.jevModel ?? "latest"}`,
   ].join("\n");
 }
 
@@ -157,6 +158,17 @@ export const USAGE_TEXT = [
   "  /jev-auto-mode uncertain deny|ask|allow",
   "  /jev-auto-mode scope all|matched    which calls reach Jev",
   "  /jev-auto-mode display full|compact how decision records are drawn",
+  "  /jev-auto-mode model               show the Jev model and the releases available to the key",
+  "  /jev-auto-mode model latest|<release> follow jev-latest or pin a release (TypeSafe only)",
+].join("\n");
+
+export const MODEL_EXPLANATION = [
+  "Which Jev release judges escalated calls (TypeSafe provider only).",
+  "  latest    - jev-latest, which TypeSafe resolves to the newest release (default).",
+  "  <release> - pin a release listed above, e.g. to keep judgments stable across releases.",
+  "A release is saved only after the API lists it for this key. JEV_AUTO_MODE_MODEL and",
+  "TYPESAFE_DEFAULT_MODEL take precedence. Thresholds were calibrated on one release, so",
+  "re-check them after pinning a different one (see Tuning in the README).",
 ].join("\n");
 
 export const DISPLAY_EXPLANATION = [
