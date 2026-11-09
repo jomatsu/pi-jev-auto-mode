@@ -211,6 +211,7 @@ export function createHttpDecisionTransport(options: HttpDecisionOptions): JevTr
           headers: {
             "Content-Type": "application/json",
             ...(options.provider === "strands" || options.apiKey === undefined ? {} : { Authorization: `Bearer ${options.apiKey}` }),
+            ...(options.provider === "perplexity" ? { "X-Pplx-Integration": "pi-jev-auto-mode" } : {}),
           },
           body,
         });

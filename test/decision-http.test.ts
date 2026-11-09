@@ -41,6 +41,18 @@ describe("decision HTTP contracts", () => {
     assert.deepEqual(await client.systemOne(request), { ok: true, response: answer });
   });
 
+  it("identifies the integration only on Perplexity requests", async () => {
+    const seen: Record<string, string | null> = {};
+    for (const provider of ["perplexity", "cloudflare", "openai"] as const) {
+      const client = transport(async (_url, init) => {
+        seen[provider] = new Headers(init?.headers).get("x-pplx-integration");
+        return json(provider === "cloudflare" ? { result: answer, success: true, errors: [], messages: [] } : answer);
+      }, { provider });
+      await client.systemOne(request);
+    }
+    assert.deepEqual(seen, { perplexity: "pi-jev-auto-mode", cloudflare: null, openai: null });
+  });
+
   it("unwraps a successful Cloudflare REST envelope", async () => {
     const client = transport(async (_url, init) => {
       assert.equal(init?.redirect, "error");
